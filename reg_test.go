@@ -13,7 +13,7 @@ import (
 	"github.com/recoilme/flyml"
 )
 
-func TestReg(t *testing.T) {
+/*func TestReg(t *testing.T) {
 	reg := &flyml.Model{Rand: rand.New(rand.NewSource(int64(42)))}
 
 	x, y := svmRead("dataset/mushrooms.svm")
@@ -25,7 +25,7 @@ func TestReg(t *testing.T) {
 	test := x[trainLen:]
 	testY := y[trainLen:]
 	start := time.Now()
-	epoh := 500
+	epoh := 300
 	reg.TrainSGD(train, trainY, epoh)
 	duration := time.Now().Sub(start)
 	fmt.Println("\tAverage iter time:", duration/time.Duration(len(train)*epoh))
@@ -33,6 +33,30 @@ func TestReg(t *testing.T) {
 	accuracy := reg.Accuracy(test, testY)
 	duration = time.Now().Sub(start)
 	fmt.Printf("Finished Testing < logistic regression >\n\tAccuracy: %v percent\n\tExamples tested: %v\n\tAverage Classification Time: %v\n", accuracy, len(testY), duration/time.Duration(len(testY)))
+}*/
+
+func TestReg2(t *testing.T) {
+	//reg := &flyml.Model{Rand: rand.New(rand.NewSource(int64(42)))}
+
+	x, y := svmRead("dataset/mushrooms.svm")
+	// separate training and test sets
+	trainLen := int(0.8 * float64(len(x)))
+	train := x[:trainLen]
+	trainY := y[:trainLen]
+
+	test := x[trainLen:]
+	testY := y[trainLen:]
+	start := time.Now()
+	epoh := 40
+	//reg.TrainSGD(train, trainY, epoh)
+	w := flyml.LogisticRegression(train, trainY, .1, epoh)
+	duration := time.Now().Sub(start)
+	fmt.Println("\tAverage iter time:", duration/time.Duration(len(train)*epoh))
+	start = time.Now()
+	accuracy := flyml.Accuracy(test, testY, w.RawVector().Data)
+	duration = time.Now().Sub(start)
+	fmt.Printf("Finished Testing < logistic regression >\n\tAccuracy: %v percent\n\tExamples tested: %v\n\tAverage Classification Time: %v\n", accuracy, len(testY), duration/time.Duration(len(testY)))
+	//fmt.Println(testY)
 }
 
 func svmRead(filepath string) (x [][]float64, y []float64) {

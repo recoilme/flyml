@@ -255,11 +255,12 @@ func main() {
 	testY := y[trainLen:]
 
 	//LogReg.Model(train, trainY, test, testY, 200, 0.01)
-	mod := &flyml.Model{Rand: rand.New(rand.NewSource(int64(42)))} //, 0.000001) // .New(0.1)
-	mod.TrainSGD(train, trainY, 100)
+	//mod := &flyml.Model{Rand: rand.New(rand.NewSource(int64(42)))} //, 0.000001) // .New(0.1)
+	//mod.TrainSGD(train, trainY, 100)
+	w := flyml.LogisticRegression(train, trainY, 0.1, 100)
 
 	start := time.Now()
-	accuracy := mod.Accuracy(test, testY)
+	accuracy := flyml.Accuracy(test, testY, w.RawVector().Data)
 	duration := time.Now().Sub(start)
 	fmt.Printf("Finished Testing < logistic regression >\n\tAccuracy: %v percent\n\tExamples tested: %v\n\tAverage Classification Time: %v\n", accuracy, len(testY), duration/time.Duration(len(testY)))
 
