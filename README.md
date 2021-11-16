@@ -1,4 +1,5 @@
-# FlyML perfomant real time mashine learning libraryes in Go
+# FlyML 
+perfomant real time mashine learning libraryes in Go
 
 ## simple & perfomant logistic regression (~300 LoC)
 
