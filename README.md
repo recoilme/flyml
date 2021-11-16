@@ -15,7 +15,7 @@ Validated on mushrooms dataset
         Accuracy (offline/3 epoch): 100.00
 ```
 
-sklearn give ~94.9% accuracy: https://medium.com/analytics-vidhya/mushroom-classification-using-different-classifiers-aa338c1cd0ff
+[sklearn give ~94.9% accuracy (max_iter=500)](https://medium.com/analytics-vidhya/mushroom-classification-using-different-classifiers-aa338c1cd0ff)
 
 
 ## Usage
