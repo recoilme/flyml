@@ -20,12 +20,13 @@ type LogIt struct {
 	Rate      float64
 }
 
+// TODO: add logloss info?
 func logloss(yTrue float64, yPred float64) float64 {
 	loss := yTrue*math.Log1p(yPred) + (1-yTrue)*math.Log1p(1-yPred)
 	return loss
 }
 
-// LogItNew create new LogIt wit learning rate (0..1)
+// LogItNew create new LogIt with learning rate (0..1)
 func LogItNew(learningRate float64) *LogIt {
 	return &LogIt{
 		Label:     make(map[string]int),
@@ -47,6 +48,7 @@ func (li *LogIt) LabelPut(label string) (idx int, isNew bool) {
 	return idx, false
 }
 
+// LabelOnehot label 2 dictionary
 func (li *LogIt) LabelOnehot() []float64 {
 	v := mat.NewVecDense(len(li.Label), nil)
 	// make labels slice
@@ -124,7 +126,6 @@ func Softmax(w, x *mat.VecDense) float64 {
 }
 
 // LineTrain train one line with gradient descent
-// return new weights
 func (li *LogIt) LineTrain(futVals []float64, labelVal float64) {
 	//fmt.Println("fm3", len(futVals))
 	// vectorize
@@ -146,6 +147,7 @@ func (li *LogIt) LineTrain(futVals []float64, labelVal float64) {
 	// calc scaled gradient
 	dx := mat.NewVecDense(x.Len(), nil)
 	dx.CopyVec(x)
+	//TODO
 	//try GD from https://pythobyte.com/logistic-regression-from-scratch-ae373d5d/
 	//np.dot(X.T, (h - y)) / y.shape[0]
 	// self.weight -= lr * dW
@@ -153,10 +155,9 @@ func (li *LogIt) LineTrain(futVals []float64, labelVal float64) {
 	// apply gradient
 	wsVec.AddVec(wsVec, dx)
 	li.Weights = wsVec.RawVector().Data
-	// return new weights
-	//return wsVec.RawVector().Data
 }
 
+// TrainLineSVM train singl line
 func (li *LogIt) TrainLineSVM(s string) []float64 {
 	labelIdx, futures, err := li.LoadLineSVM(s)
 	if err != nil {
@@ -169,6 +170,8 @@ func (li *LogIt) TrainLineSVM(s string) []float64 {
 	return li.Weights
 }
 
+// TrainLinesSVM train on batch lines
+// Stohastic Gradient Descent
 func (li *LogIt) TrainLinesSVM(strs []string, epoch int) {
 	labels := make([]float64, len(strs))
 	futures := make([][]float64, len(strs))
@@ -193,7 +196,6 @@ func (li *LogIt) WarmUp(futVals [][]float64, labelVal []float64, epoch int) []fl
 	}
 
 	for ep := 0; ep < epoch; ep++ {
-		//fmt.Println("ep:", ep)
 		//shuffle
 		rand.NewSource(int64(ep))
 		rand.Shuffle(len(futVals), func(i, j int) {
@@ -207,6 +209,8 @@ func (li *LogIt) WarmUp(futVals [][]float64, labelVal []float64, epoch int) []fl
 	return li.Weights
 }
 
+// TestLinesSVM test multiple lines
+// return accuracy
 func (li *LogIt) TestLinesSVM(strs []string) float64 {
 	labels := make([]float64, len(strs))
 	futures := make([][]float64, len(strs))
@@ -227,6 +231,7 @@ func (li *LogIt) TestLinesSVM(strs []string) float64 {
 	return 100 * (1 - float64(wrong)/float64(len(strs)))
 }
 
+// Predict
 func (li *LogIt) Predict(futures []float64) (probability float64, label string, labelIdx int) {
 	labels := make([]string, 0, len(li.Label))
 	for key := range li.Label {
