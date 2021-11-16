@@ -22,6 +22,24 @@ Validated on mushrooms dataset
 
 see tests & examples
 
+```
+	filepath := "dataset/mushrooms.svm"
+	f, err := os.Open(filepath)
+	if err != nil {
+		panic(err.Error())
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Split(bufio.ScanLines)
+        
+        li := flyml.LogItNew(0.1)
+	for scanner.Scan() {
+		scanText := scanner.Text()
+		li.TrainLineSVM(scanText)
+	}
+```
+
 ## Credits
 
 https://github.com/mattn/go-gonum-logisticregression-iris

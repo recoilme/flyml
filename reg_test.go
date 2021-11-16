@@ -56,6 +56,7 @@ func TestMashroom(t *testing.T) {
 	fmt.Printf("\tAccuracy (online learn/1 epoch): %.2f\n\n", accuracy)
 	start := time.Now()
 	epoh := 3
+	// warm up with 3 epochs
 	li.TrainLinesSVM(lines, epoh)
 	duration := time.Now().Sub(start)
 	fmt.Println("\tAverage iter time:", duration/time.Duration(len(train)*epoh))
