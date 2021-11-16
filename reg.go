@@ -1,174 +1,249 @@
 package flyml
 
 import (
+	"fmt"
+	"log"
 	"math"
 	"math/rand"
+	"sort"
+	"strconv"
+	"strings"
 
 	"gonum.org/v1/gonum/mat"
 )
 
-type Model struct {
-	Weights []float64 `json:"weights"`
-	Bias    float64   `json:"bias"`
-	Means   []float64 `json:"means"`
-	Rand    *rand.Rand
+type LogIt struct {
+	Label     map[string]int
+	LabelVals []float64
+	Future    map[int]int
+	Weights   []float64
+	Rate      float64
 }
 
-func (mdl *Model) TrainSGD(inputs [][]float64, outputs []float64, epochs int) {
-	mdl.calculateMeans(inputs)
+func logloss(yTrue float64, yPred float64) float64 {
+	loss := yTrue*math.Log1p(yPred) + (1-yTrue)*math.Log1p(1-yPred)
+	return loss
+}
 
-	m := len(inputs)
-
-	if len(mdl.Weights) == 0 {
-		mdl.Weights = make([]float64, len(inputs[0]))
-	}
-
-	var index int
-	epochs *= len(outputs)
-
-	for epoch := 0; epoch < epochs; epoch++ {
-		index = mdl.Rand.Intn(m)
-		//index = epoch
-		mdl.train(inputs[index], outputs[index])
-		//if epoch%len(outputs) == 0 {
-		//	fmt.Println(epoch, mdl.Accuracy(inputs, outputs), index)
-		//}
+// LogItNew create new LogIt wit learning rate (0..1)
+func LogItNew(learningRate float64) *LogIt {
+	return &LogIt{
+		Label:     make(map[string]int),
+		LabelVals: make([]float64, 0),
+		Future:    make(map[int]int),
+		Weights:   make([]float64, 0),
+		Rate:      learningRate,
 	}
 }
 
-func (mdl *Model) calculateMeans(inputs [][]float64) {
-	mdl.Means = make([]float64, len(inputs[0]))
+// LabelPut add new Label or return label index
+func (li *LogIt) LabelPut(label string) (idx int, isNew bool) {
+	idx, ok := li.Label[label]
+	if !ok {
+		li.Label[label] = len(li.Label)
+		li.LabelVals = li.LabelOnehot()
+		return li.Label[label], true
+	}
+	return idx, false
+}
 
-	for i := range inputs {
-		for j, feature := range inputs[i] {
-			mdl.Means[j] += feature
+func (li *LogIt) LabelOnehot() []float64 {
+	v := mat.NewVecDense(len(li.Label), nil)
+	// make labels slice
+	labels := make([]string, 0, len(li.Label))
+	for key := range li.Label {
+		labels = append(labels, key)
+	}
+	// sort by value ascending
+	sort.Slice(labels, func(i, j int) bool {
+		return li.Label[labels[i]] < li.Label[labels[j]]
+	})
+	//fmt.Println(labels)
+
+	for i := 0; i < len(labels); i++ {
+		//fmt.Println("i", i)
+		f, ok := li.Label[labels[i]]
+		if ok {
+			//fmt.Println(i, f)
+			v.SetVec(i, float64(f))
 		}
 	}
+	v.ScaleVec(1/float64(len(labels)), v)
+	return v.RawVector().Data
+}
 
-	m := float64(len(inputs))
-
-	for j := range mdl.Means {
-		mdl.Means[j] /= m
+// FuturePut add FutureHash to dictionary or return index
+func (li *LogIt) FuturePut(futureHash int) (idx int, isNew bool) {
+	idx, ok := li.Future[futureHash]
+	if !ok {
+		li.Future[futureHash] = len(li.Future)
+		return len(li.Future), true
 	}
+	return idx, false
 }
 
-func (mdl *Model) train(input []float64, output float64) {
-	scaled := subtract(input, mdl.Means)
-	delta := mdl.predict(scaled) - output
+//LoadLineSVM convert line in svm format:
+//1 6:1 8:1 15:1 21:1 29:1 33:1 34:1 37:1 42:1 50:1
+//Label FutureHash:FutureWeight ...
+func (li *LogIt) LoadLineSVM(s string) (labelID int, futures []float64, err error) {
 
-	for j, feature := range scaled {
-		mdl.Weights[j] -= delta * feature
-	}
-
-	mdl.Bias -= delta
-}
-
-func (mdl *Model) predict(input []float64) float64 {
-	return sigmoid(dot(input, mdl.Weights) + mdl.Bias)
-}
-
-func (mdl *Model) Predict(input []float64) float64 {
-	return mdl.predict(subtract(input, mdl.Means))
-}
-
-func subtract(a, b []float64) []float64 {
-	/*
-		difference := make([]float64, len(a))
-
-		for i, x := range a {
-			difference[i] = x - b[i]
+	fields := strings.Fields(s)
+	futures = make([]float64, len(li.Future))
+	for i := range fields {
+		if i == 0 {
+			labelID, _ = li.LabelPut(fields[0])
+			continue //label
 		}
-
-		return difference
-	*/
-	vec := mat.NewVecDense(len(a), a)
-	vec.SubVec(vec, mat.NewVecDense(len(b), b))
-	return vec.RawVector().Data
-}
-
-func dot(a, b []float64) float64 {
-	/*
-		s := 0.
-
-		for i, x := range a {
-			s += x * b[i]
+		arr := strings.Split(fields[i], ":")
+		if len(arr) < 2 {
+			return labelID, futures, fmt.Errorf("Error in string:%s len(arr) < 2", s)
 		}
-
-		return s
-	*/
-	return mat.Dot(mat.NewVecDense(len(a), a), mat.NewVecDense(len(b), b))
-}
-
-func sigmoid(z float64) float64 {
-	return 1. / (1. + math.Exp(-z))
-}
-
-func (mdl *Model) Accuracy(test [][]float64, testY []float64) float64 {
-	var count int
-	var wrong int
-
-	for i := range test {
-		guess := mdl.Predict(test[i])
-		if (guess < .5 && testY[i] == 1) || (guess > .5 && testY[i] == 0) { //abs(guess[0]-testY[i]) > 1e-2 {
-			wrong++
+		futureHash, err := strconv.Atoi(arr[0])
+		if err != nil {
+			return labelID, futures, fmt.Errorf("Error in string:%s err:%s", s, err)
 		}
-		count++
-	}
-	return 100 * (1 - float64(wrong)/float64(count))
-}
-
-func LogisticRegression(xx [][]float64, yy []float64, rate float64, ntrains int) *mat.VecDense {
-	X := make([]*mat.VecDense, len(xx))
-	for i := 0; i < len(X); i++ {
-		X[i] = mat.NewVecDense(len(xx[i]), xx[i])
-	}
-	y := mat.NewVecDense(len(yy), yy)
-	ws := make([]float64, X[0].Len())
-	//for i := range ws {
-	//	ws[i] = (rand.Float64() - 0.5) * float64(X[0].Len()/2)
-	//}
-	//fmt.Println(X[0].RawVector().Data)
-	w := mat.NewVecDense(len(ws), ws)
-	for n := 0; n < ntrains; n++ {
-		for i, x := range X {
-			//t := mat.NewVecDense(x.Len(), nil)
-			//t.CopyVec(x)
-			pred := softmax(w, x)
-			perr := y.At(i, 0) - pred
-			scale := rate * perr * pred * (1 - pred)
-			dx := mat.NewVecDense(x.Len(), nil)
-			dx.CopyVec(x)
-			//dx := mat.NewVecDense(x.Len(), x.RawVector().Data)
-			dx.ScaleVec(scale, x)
-			//for j := 0; j < x.Len(); j++ {
-			w.AddVec(w, dx)
-			//}
+		futureVal, err := strconv.ParseFloat(arr[1], 64)
+		if err != nil {
+			return labelID, futures, fmt.Errorf("Error in string:%s err:%s", s, err)
 		}
+		futureIdx, isNew := li.FuturePut(futureHash)
+		if isNew {
+			//new future
+			futures = append(futures, futureVal)
+			continue
+		}
+		futures[futureIdx] = futureVal
 	}
-	//fmt.Println(X[0].RawVector().Data)
-	return w
+	return labelID, futures, nil
 }
 
-func softmax(w, x *mat.VecDense) float64 {
+// Softmax return absolute probability value
+func Softmax(w, x *mat.VecDense) float64 {
 	v := mat.Dot(w, x)
 	return 1.0 / (1.0 + math.Exp(-v))
 }
 
-func predictsm(w, x []float64) float64 {
-	return softmax(mat.NewVecDense(len(w), w), mat.NewVecDense(len(x), x))
+// LineTrain train one line with gradient descent
+// return new weights
+func (li *LogIt) LineTrain(futVals []float64, labelVal float64) {
+	//fmt.Println("fm3", len(futVals))
+	// vectorize
+	if len(futVals) != len(li.Weights) {
+		if len(futVals) > len(li.Weights) {
+			// new futures
+			tmp := make([]float64, len(futVals)-len(li.Weights))
+			li.Weights = append(li.Weights, tmp...)
+		}
+	}
+	x := mat.NewVecDense(len(futVals), futVals)
+	wsVec := mat.NewVecDense(len(li.Weights), li.Weights)
+	// predict
+	pred := Softmax(wsVec, x)
+	// predict error
+	predErr := labelVal - pred
+	// scale koef
+	scale := li.Rate * predErr * pred * (1 - pred)
+	// calc scaled gradient
+	dx := mat.NewVecDense(x.Len(), nil)
+	dx.CopyVec(x)
+	//try GD from https://pythobyte.com/logistic-regression-from-scratch-ae373d5d/
+	//np.dot(X.T, (h - y)) / y.shape[0]
+	// self.weight -= lr * dW
+	dx.ScaleVec(scale, x) //*float64(x.Len()), x)
+	// apply gradient
+	wsVec.AddVec(wsVec, dx)
+	li.Weights = wsVec.RawVector().Data
+	// return new weights
+	//return wsVec.RawVector().Data
 }
 
-func Accuracy(test [][]float64, testY, w []float64) float64 {
-	var count int
-	var wrong int
+func (li *LogIt) TrainLineSVM(s string) []float64 {
+	labelIdx, futures, err := li.LoadLineSVM(s)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if len(li.Weights) == 0 {
+		li.Weights = make([]float64, len(futures))
+	}
+	li.LineTrain(futures, li.LabelVals[labelIdx])
+	return li.Weights
+}
 
-	for i := range test {
-		guess := predictsm(w, test[i])
-		if (guess < .5 && testY[i] == 1) || (guess > .5 && testY[i] == 0) { //abs(guess[0]-testY[i]) > 1e-2 {
+func (li *LogIt) TrainLinesSVM(strs []string, epoch int) {
+	labels := make([]float64, len(strs))
+	futures := make([][]float64, len(strs))
+	for i, s := range strs {
+		labelIdx, future, err := li.LoadLineSVM(s)
+		if err != nil {
+			log.Fatal(err)
+		}
+		labels[i] = li.LabelVals[labelIdx]
+		futures[i] = future
+	}
+	li.WarmUp(futures, labels, epoch)
+}
+
+// WarmUp regression with classic interface
+func (li *LogIt) WarmUp(futVals [][]float64, labelVal []float64, epoch int) []float64 {
+	for i := range futVals {
+		if len(futVals[i]) < len(li.Future) {
+			tmp := make([]float64, len(li.Future)-len(futVals[i]))
+			futVals[i] = append(futVals[i], tmp...)
+		}
+	}
+
+	for ep := 0; ep < epoch; ep++ {
+		//fmt.Println("ep:", ep)
+		//shuffle
+		rand.NewSource(int64(ep))
+		rand.Shuffle(len(futVals), func(i, j int) {
+			futVals[i], futVals[j] = futVals[j], futVals[i]
+			labelVal[i], labelVal[j] = labelVal[j], labelVal[i]
+		})
+		for i := range futVals {
+			li.LineTrain(futVals[i], labelVal[i])
+		}
+	}
+	return li.Weights
+}
+
+func (li *LogIt) TestLinesSVM(strs []string) float64 {
+	labels := make([]float64, len(strs))
+	futures := make([][]float64, len(strs))
+
+	var wrong int
+	for i, s := range strs {
+		labelIdx, future, err := li.LoadLineSVM(s)
+		if err != nil {
+			log.Fatal(err)
+		}
+		labels[i] = li.LabelVals[labelIdx]
+		futures[i] = future
+		_, _, labelPredIdx := li.Predict(future)
+		if labelPredIdx != labelIdx {
 			wrong++
 		}
-		//fmt.Printf("%f:%f\n", guess, testY[i])
-		count++
 	}
-	return 100 * (1 - float64(wrong)/float64(count))
+	return 100 * (1 - float64(wrong)/float64(len(strs)))
+}
+
+func (li *LogIt) Predict(futures []float64) (probability float64, label string, labelIdx int) {
+	labels := make([]string, 0, len(li.Label))
+	for key := range li.Label {
+		labels = append(labels, key)
+	}
+	// sort by value ascending
+	sort.Slice(labels, func(i, j int) bool {
+		return li.Label[labels[i]] < li.Label[labels[j]]
+	})
+	pred := Softmax(mat.NewVecDense(len(li.Weights), li.Weights), mat.NewVecDense(len(futures), futures))
+	min := 1.
+	num := 0
+	for k, v := range li.LabelVals {
+		if math.Abs(pred-v) <= min {
+			min = math.Abs(pred - v)
+			num = k
+		}
+	}
+	return pred, labels[num], li.Label[labels[num]]
 }

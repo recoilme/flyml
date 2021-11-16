@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"golang.org/x/text/transform"
-
-	"github.com/recoilme/flyml"
 )
 
 var (
@@ -253,15 +251,22 @@ func main() {
 
 	test := x[trainLen:]
 	testY := y[trainLen:]
-
+	_ = train
+	_ = trainY
+	_ = test
 	//LogReg.Model(train, trainY, test, testY, 200, 0.01)
 	//mod := &flyml.Model{Rand: rand.New(rand.NewSource(int64(42)))} //, 0.000001) // .New(0.1)
 	//mod.TrainSGD(train, trainY, 100)
-	w := flyml.LogisticRegression(train, trainY, 0.1, 100)
+	//w := flyml.LogisticRegression(train, trainY, 0.1, 100)
+	//w := make([]float64, len(words))
+	//w, b := flyml.Optimize(w, 0.0, train, trainY, 500, .05)
 
 	start := time.Now()
-	accuracy := flyml.Accuracy(test, testY, w.RawVector().Data)
+	//accuracy := flyml.Accuracy(test, testY, w.RawVector().Data)
+	//flyml.Accuracy2(test, testY, w, b)
+	//flyml.Accuracy(test, testY, w.RawVector().Data)
 	duration := time.Now().Sub(start)
+	accuracy := 0.
 	fmt.Printf("Finished Testing < logistic regression >\n\tAccuracy: %v percent\n\tExamples tested: %v\n\tAverage Classification Time: %v\n", accuracy, len(testY), duration/time.Duration(len(testY)))
 
 }

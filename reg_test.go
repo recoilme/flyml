@@ -3,138 +3,67 @@ package flyml_test
 import (
 	"bufio"
 	"fmt"
-	"math/rand"
 	"os"
-	"strconv"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/recoilme/flyml"
+	"github.com/stretchr/testify/assert"
 )
 
-/*func TestReg(t *testing.T) {
-	reg := &flyml.Model{Rand: rand.New(rand.NewSource(int64(42)))}
-
-	x, y := svmRead("dataset/mushrooms.svm")
-	// separate training and test sets
-	trainLen := int(0.8 * float64(len(x)))
-	train := x[:trainLen]
-	trainY := y[:trainLen]
-
-	test := x[trainLen:]
-	testY := y[trainLen:]
-	start := time.Now()
-	epoh := 300
-	reg.TrainSGD(train, trainY, epoh)
-	duration := time.Now().Sub(start)
-	fmt.Println("\tAverage iter time:", duration/time.Duration(len(train)*epoh))
-	start = time.Now()
-	accuracy := reg.Accuracy(test, testY)
-	duration = time.Now().Sub(start)
-	fmt.Printf("Finished Testing < logistic regression >\n\tAccuracy: %v percent\n\tExamples tested: %v\n\tAverage Classification Time: %v\n", accuracy, len(testY), duration/time.Duration(len(testY)))
-}*/
-
-func TestReg2(t *testing.T) {
-	//reg := &flyml.Model{Rand: rand.New(rand.NewSource(int64(42)))}
-
-	x, y := svmRead("dataset/mushrooms.svm")
-	// separate training and test sets
-	trainLen := int(0.8 * float64(len(x)))
-	train := x[:trainLen]
-	trainY := y[:trainLen]
-
-	test := x[trainLen:]
-	testY := y[trainLen:]
-	start := time.Now()
-	epoh := 40
-	//reg.TrainSGD(train, trainY, epoh)
-	w := flyml.LogisticRegression(train, trainY, .1, epoh)
-	duration := time.Now().Sub(start)
-	fmt.Println("\tAverage iter time:", duration/time.Duration(len(train)*epoh))
-	start = time.Now()
-	accuracy := flyml.Accuracy(test, testY, w.RawVector().Data)
-	duration = time.Now().Sub(start)
-	fmt.Printf("Finished Testing < logistic regression >\n\tAccuracy: %v percent\n\tExamples tested: %v\n\tAverage Classification Time: %v\n", accuracy, len(testY), duration/time.Duration(len(testY)))
-	//fmt.Println(testY)
+func TestSVM(t *testing.T) {
+	li := flyml.LogItNew(0.1)
+	_, _, err := li.LoadLineSVM("1 6:1 8:1 15:1 21:1 29:1 33:1 34:1 37:1 42:1 50:1")
+	assert.NoError(t, err)
+	_, fut, err := li.LoadLineSVM("2 7:1 8:1")
+	assert.NoError(t, err)
+	//fmt.Printf("%+v\n", li)
+	// &{Label:map[1:0 2:1]
+	// Future:map[6:0 7:10 8:1 15:2 21:3 29:4 33:5 34:6 37:7 42:8 50:9]}
+	// [0 1 0 0 0 0 0 0 0 0 1]
+	assert.Equal(t, 11, len(fut))
+	assert.Equal(t, 2, len(li.Label))
 }
 
-func svmRead(filepath string) (x [][]float64, y []float64) {
+func TestMashroom(t *testing.T) {
+	filepath := "dataset/mushrooms.svm"
 	f, err := os.Open(filepath)
 	if err != nil {
 		panic(err.Error())
 	}
 	defer f.Close()
 
-	// create word bank
 	scanner := bufio.NewScanner(f)
 	scanner.Split(bufio.ScanLines)
 
-	fmt.Printf("Starting adding futures from < %v >\n", filepath)
-	fut := make(map[int]int, 0)
-	count := 0
+	lines := make([]string, 0, 1024)
 	for scanner.Scan() {
 		scanText := scanner.Text()
-		fields := strings.Fields(scanText)
-		for i := range fields {
-			if i == 0 {
-				continue //label
-			}
-			f := strings.TrimSuffix(fields[i], ":1")
-			fidx, err := strconv.Atoi(f)
-			if err != nil {
-				continue
-			}
-			if _, ok := fut[fidx]; !ok {
-				fut[fidx] = count
-				count++
-			}
-		}
+		lines = append(lines, scanText)
 	}
-	fmt.Println("\tFutures:", len(fut))
+	// separate training and test sets
+	trainLen := int(0.9 * float64(len(lines)))
+	train := lines[:trainLen]
 
-	f2, err := os.Open(filepath)
-	if err != nil {
-		panic(err.Error())
+	li := flyml.LogItNew(0.1)
+	// online learn & load
+	for _, s := range train {
+		li.TrainLineSVM(s)
 	}
-	defer f2.Close()
+	test := lines[trainLen:]
+	accuracy := li.TestLinesSVM(test)
+	fmt.Printf("\nFinished Testing < logistic regression >")
+	fmt.Printf("\tAccuracy (online learn/1 epoch): %.2f\n\n", accuracy)
+	start := time.Now()
+	epoh := 3
+	li.TrainLinesSVM(lines, epoh)
+	duration := time.Now().Sub(start)
+	fmt.Println("\tAverage iter time:", duration/time.Duration(len(train)*epoh))
+	fmt.Printf("\tFutures: %d Labels: %d\n", len(li.Future), len(li.LabelVals))
 
-	scanner = bufio.NewScanner(f2)
-	scanner.Split(bufio.ScanLines)
-	for scanner.Scan() {
-		scanText := scanner.Text()
-		fields := strings.Fields(scanText)
-		l := make([]float64, len(fut))
-		for i := range fields {
-			if i == 0 {
-				label, err := strconv.Atoi(fields[i])
-				if err != nil {
-					break
-				}
-				if label != 1 {
-					label = 0
-				}
-				y = append(y, float64(label))
-				continue
-			}
-			f := strings.TrimSuffix(fields[i], ":1")
-			fidx, err := strconv.Atoi(f)
-			if err != nil {
-				break
-			}
-			l[fut[fidx]] = 1.0
-		}
-		x = append(x, l)
-	}
-	//shuffle
-	for i := range x {
-		j := rand.Intn(i + 1)
-		x[i], x[j] = x[j], x[i]
-		y[i], y[j] = y[j], y[i]
-	}
-	return x, y
-}
-
-func TestSvmRead(t *testing.T) {
-	svmRead("dataset/mushrooms.svm")
+	start = time.Now()
+	accuracy = li.TestLinesSVM(test)
+	duration = time.Now().Sub(start)
+	fmt.Println("\tAverage prediction time:", duration/time.Duration(len(test)))
+	fmt.Printf("\tAccuracy (offline/3 epoch): %.2f\n\n", accuracy)
 }
