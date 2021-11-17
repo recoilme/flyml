@@ -17,7 +17,7 @@ func TestSVM(t *testing.T) {
 	assert.NoError(t, err)
 	_, fut, err := li.LoadLineSVM("2 7:1 8:1")
 	assert.NoError(t, err)
-	//fmt.Printf("%+v\n", li)
+	fmt.Printf("%+v\n", li)
 	// &{Label:map[1:0 2:1]
 	// Future:map[6:0 7:10 8:1 15:2 21:3 29:4 33:5 34:6 37:7 42:8 50:9]}
 	// [0 1 0 0 0 0 0 0 0 0 1]
@@ -52,7 +52,7 @@ func TestMashroom(t *testing.T) {
 	}
 	test := lines[trainLen:]
 	accuracy := li.TestLinesSVM(test)
-	fmt.Printf("\nFinished Testing < logistic regression >")
+	fmt.Printf("\nFinished Testing < logistic regression >\n")
 	fmt.Printf("\tAccuracy (online learn/1 epoch): %.2f\n\n", accuracy)
 	start := time.Now()
 	epoh := 3
@@ -60,7 +60,7 @@ func TestMashroom(t *testing.T) {
 	li.TrainLinesSVM(lines, epoh)
 	duration := time.Now().Sub(start)
 	fmt.Println("\tAverage iter time:", duration/time.Duration(len(train)*epoh))
-	fmt.Printf("\tFutures: %d Labels: %d\n", len(li.Future), len(li.LabelVals))
+	fmt.Printf("\tFutures: %d Labels: %d\n", len(li.Future), len(li.Label))
 
 	start = time.Now()
 	accuracy = li.TestLinesSVM(test)
