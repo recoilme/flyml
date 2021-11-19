@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
+	"time"
 
 	"gonum.org/v1/gonum/mat"
 )
@@ -20,9 +21,9 @@ type LogIt struct {
 	Rate      float64
 }
 
-// TODO: add logloss info?
+// logloss
 func logloss(yTrue float64, yPred float64) float64 {
-	loss := yTrue*math.Log(yPred+0.00001) + (1-yTrue)*math.Log(1-yPred)
+	loss := yTrue*math.Log1p(yPred) + (1-yTrue)*math.Log1p(1-yPred)
 	return loss
 }
 
@@ -52,7 +53,7 @@ func (li *LogIt) LabelPut(label string) (idx int, isNew bool) {
 
 func (li *LogIt) LabelOnehot() []float64 {
 	if len(li.Label) == 2 {
-		return []float64{0.000001, 0.999999}
+		return []float64{0.000001, 0.9}
 	}
 	if len(li.Label) == 3 {
 		return []float64{0.000001, .555555, 0.999999}
@@ -76,7 +77,7 @@ func (li *LogIt) FuturePut(futureHash int) (idx int, isNew bool) {
 	idx, ok := li.Future[futureHash]
 	if !ok {
 		li.Future[futureHash] = len(li.Future)
-		li.Weights = append(li.Weights, 0.0)
+		li.Weights = append(li.Weights, rand.Float64()) //(rand.Float64()-0.5)*float64(len(li.Future)/2))
 		return len(li.Future), true
 	}
 	return idx, false
@@ -112,7 +113,8 @@ func (li *LogIt) LoadLineSVM(s string) (labelID int, futures []float64, err erro
 			futures = append(futures, futureVal)
 			continue
 		}
-		futures[futureIdx] = futureVal
+
+		futures[futureIdx] = 1.0 //futureVal
 	}
 	return labelID, futures, nil
 }
@@ -138,19 +140,34 @@ func (li *LogIt) Train(futVals []float64, labelVal float64) (loss float64) {
 	// predict
 	pred := Softmax(x, wsVec)
 
-	loss = logloss(pred, labelVal)
+	loss = logloss(labelVal, pred)
 
 	for i := range li.Weights {
 		li.Weights[i] += li.Rate * ((labelVal - pred) * futVals[i])
 	}
 	return
-	//dx := mat.NewVecDense(x.Len(), nil)
-	//dx.CopyVec(x)
-	//dx.ScaleVec(predErr, x)
+	/*
 
-	//dx.SubVec(dx, labelVal)
-	//wsVec.SubVec((labelVal - dx), wsVec)
-	//li.Weights = wsVec.RawVector().Data
+		// error
+		predErr := labelVal - pred
+		// scale koef
+		scale := li.Rate * predErr * (pred * (1 - pred))
+
+		for i := range li.Weights {
+			li.Weights[i] = li.Weights[i] + scale*futVals[i]
+		}
+		return*/
+
+	/*
+		dx := mat.NewVecDense(len(futVals), nil)
+		dx.CopyVec(x)
+		dx.ScaleVec(scale, x)
+		wsVec.AddVec(wsVec, dx)
+		li.Weights = wsVec.RawVector().Data
+		fmt.Println(li.Weights[0], dx.RawVector().Data[0])
+		return loss
+	*/
+
 }
 
 // TrainLine train single line
@@ -179,11 +196,11 @@ func (li *LogIt) TrainLines(strs []string, epoch int) {
 		labels[i] = li.LabelVals[labelIdx]
 		futures[i] = future
 	}
-	li.WarmUp(futures, labels, epoch)
+	li.WarmUp(futures, labels, strs, epoch)
 }
 
 // WarmUp regression with classic interface
-func (li *LogIt) WarmUp(futVals [][]float64, labelVal []float64, epoch int) []float64 {
+func (li *LogIt) WarmUp(futVals [][]float64, labelVal []float64, test []string, epoch int) []float64 {
 	for i := range futVals {
 		if len(futVals[i]) < len(li.Future) {
 			tmp := make([]float64, len(li.Future)-len(futVals[i]))
@@ -193,7 +210,7 @@ func (li *LogIt) WarmUp(futVals [][]float64, labelVal []float64, epoch int) []fl
 
 	for ep := 0; ep < epoch; ep++ {
 		//shuffle
-		rand.NewSource(int64(ep))
+		rand.Seed(int64(ep))
 		rand.Shuffle(len(futVals), func(i, j int) {
 			futVals[i], futVals[j] = futVals[j], futVals[i]
 			labelVal[i], labelVal[j] = labelVal[j], labelVal[i]
@@ -203,10 +220,19 @@ func (li *LogIt) WarmUp(futVals [][]float64, labelVal []float64, epoch int) []fl
 			loss += li.Train(futVals[i], labelVal[i])
 		}
 		if ep%50 == 0 {
-			fmt.Printf("ep:%d loss:%f\n", ep, loss/float64(len(futVals)))
+			fmt.Printf("ep:%d loss:%f accuracy:%f w[0];%f\n", ep, loss/float64(len(futVals)), li.TestLinesSVM(test), li.Weights[1])
 		}
 	}
 	return li.Weights
+}
+
+func ShuffleDataset(seed int, futVals [][]float64, labelVal []float64) ([][]float64, []float64) {
+	r := rand.New(rand.NewSource(time.Now().Unix()))
+	r.Shuffle(len(futVals), func(i, j int) {
+		futVals[i], futVals[j] = futVals[j], futVals[i]
+		labelVal[i], labelVal[j] = labelVal[j], labelVal[i]
+	})
+	return futVals, labelVal
 }
 
 // TestLinesSVM test multiple lines

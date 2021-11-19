@@ -3,6 +3,7 @@ package flyml_test
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"math/rand"
 	"os"
 	"testing"
@@ -11,6 +12,14 @@ import (
 	"github.com/recoilme/flyml"
 	"github.com/stretchr/testify/assert"
 )
+
+func ShuffleStr(slice []string) []string {
+	rand.Seed(time.Now().UnixNano())
+	rand.Shuffle(len(slice), func(i, j int) {
+		slice[i], slice[j] = slice[j], slice[i]
+	})
+	return slice
+}
 
 func TestSVM(t *testing.T) {
 	li := flyml.LogItNew(0.1)
@@ -44,10 +53,7 @@ func TestMashroom(t *testing.T) {
 	}
 
 	// shuffle dataset
-	rand.NewSource(int64(42))
-	rand.Shuffle(len(lines), func(i, j int) {
-		lines[i], lines[j] = lines[j], lines[i]
-	})
+	//rand.NewSource(int64(42))
 
 	// separate training and test sets
 	trainLen := int(0.9 * float64(len(lines)))
@@ -65,7 +71,7 @@ func TestMashroom(t *testing.T) {
 	fmt.Printf("\nFinished Testing < logistic regression mashroom >\n")
 	fmt.Printf("\tAccuracy (online learn): %.2f\n\n", accuracy)
 	start := time.Now()
-	epoh := 51
+	epoh := 501
 	// warm up
 	li.TrainLines(lines, epoh)
 	duration := time.Now().Sub(start)
@@ -114,7 +120,7 @@ func TestIris(t *testing.T) {
 	}
 
 	// shuffle
-	rand.NewSource(int64(time.Now().Nanosecond()))
+	//rand.NewSource(int64(time.Now().Nanosecond()))
 	rand.Shuffle(len(lines), func(i, j int) {
 		lines[i], lines[j] = lines[j], lines[i]
 	})
@@ -152,4 +158,83 @@ func TestIris(t *testing.T) {
 	fmt.Println("\tAverage prediction time:", duration/time.Duration(len(test)))
 	fmt.Printf("\tAccuracy (offline %d epoch): %.2f\n\n", epoh, accuracy)
 	//fmt.Println(test)
+}
+
+func TestBreastCancer(t *testing.T) {
+	filepath := "dataset/breast-cancer.svm"
+	f, err := os.Open(filepath)
+	if err != nil {
+		panic(err.Error())
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Split(bufio.ScanLines)
+
+	lines := make([]string, 0, 1024)
+
+	// svm dataset
+	for scanner.Scan() {
+		scanText := scanner.Text()
+		lines = append(lines, scanText)
+	}
+
+	// shuffle
+	//rand.NewSource(int64(42))
+	//rand.Shuffle(len(lines), func(i, j int) {
+	//	fmt.Println(i)
+	//	lines[i], lines[j] = lines[j], lines[i]
+	//})
+	ShuffleStr(lines)
+
+	// separate training and test sets
+	trainLen := int(0.9 * float64(len(lines)))
+	train := lines[:trainLen]
+	test := lines[trainLen:]
+
+	//fmt.Println(len(lines))
+	li := flyml.LogItNew(0.001)
+	// online learn & load
+	for _, s := range train {
+		li.TrainLine(s)
+		//li.LoadLineSVM(s)
+	}
+
+	accuracy := li.TestLinesSVM(test)
+	fmt.Printf("\nFinished Testing < logistic regression: breast-cancer >\n")
+	fmt.Printf("\tAccuracy (online learn/1 epoch): %.2f\n\n", accuracy)
+	fmt.Printf("\t%+v\t%+v\t%v\n", li.Label, li.LabelVals, li.Labels)
+	start := time.Now()
+	epoh := 501
+	// warm up
+	li.TrainLines(train, epoh)
+	duration := time.Now().Sub(start)
+	if epoh > 0 {
+		fmt.Println("\tAverage iter time:", duration/time.Duration(len(train)*epoh))
+	}
+	fmt.Printf("\tFutures: %d Labels: %d\n", len(li.Future), len(li.Label))
+
+	start = time.Now()
+	accuracy = li.TestLinesSVM(test)
+	duration = time.Now().Sub(start)
+	fmt.Println("\tAverage prediction time:", duration/time.Duration(len(test)))
+	fmt.Printf("\tAccuracy (offline %d epoch): %.2f\n\n", epoh, accuracy)
+	//fmt.Println(test)
+}
+
+func TestShuffle(t *testing.T) {
+	str := make([]string, 0)
+	for i := 0; i < 99; i++ {
+		str = append(str, fmt.Sprintf("%d", i))
+	}
+	str = ShuffleStr(str)
+	ch := make(map[string]bool)
+	for i := range str {
+		if ok, _ := ch[str[i]]; !ok {
+			ch[str[i]] = true
+		} else {
+			log.Fatal("err")
+		}
+	}
+	fmt.Printf("%+v\n", str)
 }
