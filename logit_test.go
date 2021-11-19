@@ -3,6 +3,7 @@ package flyml_test
 import (
 	"bufio"
 	"fmt"
+	"math/rand"
 	"os"
 	"testing"
 	"time"
@@ -41,30 +42,114 @@ func TestMashroom(t *testing.T) {
 		scanText := scanner.Text()
 		lines = append(lines, scanText)
 	}
+
+	// shuffle dataset
+	rand.NewSource(int64(42))
+	rand.Shuffle(len(lines), func(i, j int) {
+		lines[i], lines[j] = lines[j], lines[i]
+	})
+
 	// separate training and test sets
 	trainLen := int(0.9 * float64(len(lines)))
 	train := lines[:trainLen]
 
-	li := flyml.LogItNew(0.1)
+	li := flyml.LogItNew(0.001)
 	// online learn & load
 	for _, s := range train {
-		li.TrainLineSVM(s)
+		li.TrainLine(s)
 	}
+
+	fmt.Printf("%v %v %v\n\n", li.Label, li.LabelVals, li.Labels)
 	test := lines[trainLen:]
 	accuracy := li.TestLinesSVM(test)
-	fmt.Printf("\nFinished Testing < logistic regression >\n")
-	fmt.Printf("\tAccuracy (online learn/1 epoch): %.2f\n\n", accuracy)
+	fmt.Printf("\nFinished Testing < logistic regression mashroom >\n")
+	fmt.Printf("\tAccuracy (online learn): %.2f\n\n", accuracy)
 	start := time.Now()
-	epoh := 3
-	// warm up with 3 epochs
-	li.TrainLinesSVM(lines, epoh)
+	epoh := 51
+	// warm up
+	li.TrainLines(lines, epoh)
 	duration := time.Now().Sub(start)
-	fmt.Println("\tAverage iter time:", duration/time.Duration(len(train)*epoh))
+	if epoh > 0 {
+		fmt.Println("\tAverage iter time:", duration/time.Duration(len(train)*epoh))
+	}
 	fmt.Printf("\tFutures: %d Labels: %d\n", len(li.Future), len(li.Label))
 
 	start = time.Now()
 	accuracy = li.TestLinesSVM(test)
 	duration = time.Now().Sub(start)
 	fmt.Println("\tAverage prediction time:", duration/time.Duration(len(test)))
-	fmt.Printf("\tAccuracy (offline/3 epoch): %.2f\n\n", accuracy)
+	fmt.Printf("\tAccuracy (offline): %.2f\n\n", accuracy)
+}
+
+func TestIris(t *testing.T) {
+	filepath := "dataset/iris.csv"
+	f, err := os.Open(filepath)
+	if err != nil {
+		panic(err.Error())
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Split(bufio.ScanLines)
+
+	lines := make([]string, 0, 1024)
+	/*
+		// svm dataset
+		for scanner.Scan() {
+			scanText := scanner.Text()
+			lines = append(lines, scanText)
+		}
+	*/
+
+	// skip header
+	scanner.Scan()
+	for scanner.Scan() {
+		var f1, f2, f3, f4 float64
+		var s string
+		n, err := fmt.Sscanf(scanner.Text(), "%f,%f,%f,%f,%s", &f1, &f2, &f3, &f4, &s)
+		if n != 5 || err != nil {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("%s 1:%f 2:%f", s, f1, f2))
+	}
+
+	// shuffle
+	rand.NewSource(int64(time.Now().Nanosecond()))
+	rand.Shuffle(len(lines), func(i, j int) {
+		lines[i], lines[j] = lines[j], lines[i]
+	})
+
+	// separate training and test sets
+	trainLen := int(0.75 * float64(len(lines)))
+	train := lines[:trainLen]
+	test := lines[trainLen:]
+
+	fmt.Println(len(lines))
+	li := flyml.LogItNew(0.001)
+	// online learn & load
+	for _, s := range train {
+		li.TrainLine(s)
+		//li.LoadLineSVM(s)
+	}
+
+	accuracy := li.TestLinesSVM(test)
+	fmt.Printf("\nFinished Testing < logistic regression: iris >\n")
+	fmt.Printf("\tAccuracy (online learn/1 epoch): %.2f\n\n", accuracy)
+	fmt.Printf("\t%+v\t%+v\t%v\n", li.Label, li.LabelVals, li.Labels)
+	start := time.Now()
+	epoh := 5001
+	// warm up
+	li.TrainLines(train, epoh)
+	duration := time.Now().Sub(start)
+	if epoh > 0 {
+		fmt.Println("\tAverage iter time:", duration/time.Duration(len(train)*epoh))
+	}
+	fmt.Printf("\tFutures: %d Labels: %d\n", len(li.Future), len(li.Label))
+
+	start = time.Now()
+	accuracy = li.TestLinesSVM(test)
+	duration = time.Now().Sub(start)
+	fmt.Println("\tAverage prediction time:", duration/time.Duration(len(test)))
+	fmt.Printf("\tAccuracy (offline %d epoch): %.2f\n\n", epoh, accuracy)
+	//fmt.Println(test)
 }

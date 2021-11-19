@@ -12,26 +12,29 @@ import (
 )
 
 type LogIt struct {
-	Label   map[string]int
-	Future  map[int]int
-	Weights []float64
-	Rate    float64
+	Label     map[string]int
+	Labels    []string
+	LabelVals []float64
+	Future    map[int]int
+	Weights   []float64
+	Rate      float64
 }
 
 // TODO: add logloss info?
 func logloss(yTrue float64, yPred float64) float64 {
-	loss := yTrue*math.Log1p(yPred) + (1-yTrue)*math.Log1p(1-yPred)
+	loss := yTrue*math.Log(yPred+0.00001) + (1-yTrue)*math.Log(1-yPred)
 	return loss
 }
 
 // LogItNew create new LogIt with learning rate (0..1)
 func LogItNew(learningRate float64) *LogIt {
 	return &LogIt{
-		Label: make(map[string]int),
-		//Labels:  make([]string, 0),
-		Future:  make(map[int]int),
-		Weights: make([]float64, 0),
-		Rate:    learningRate,
+		Label:     make(map[string]int),
+		LabelVals: make([]float64, 0),
+		Labels:    make([]string, 0),
+		Future:    make(map[int]int),
+		Weights:   make([]float64, 0),
+		Rate:      learningRate,
 	}
 }
 
@@ -40,44 +43,40 @@ func (li *LogIt) LabelPut(label string) (idx int, isNew bool) {
 	idx, ok := li.Label[label]
 	if !ok {
 		li.Label[label] = len(li.Label)
-		//li.Labels = append(li.Labels, label)
+		li.Labels = append(li.Labels, label)
+		li.LabelVals = li.LabelOnehot()
 		return li.Label[label], true
 	}
 	return idx, false
 }
 
-// LabelOnehot label 2 dictionary
-/*
 func (li *LogIt) LabelOnehot() []float64 {
-	v := mat.NewVecDense(len(li.Label), nil)
-	// make labels slice
-	labels := make([]string, 0, len(li.Label))
-	for key := range li.Label {
-		labels = append(labels, key)
+	if len(li.Label) == 2 {
+		return []float64{0.000001, 0.999999}
 	}
-	// sort by value ascending
-	sort.Slice(labels, func(i, j int) bool {
-		return li.Label[labels[i]] < li.Label[labels[j]]
-	})
-	//fmt.Println(labels)
-
-	for i := 0; i < len(labels); i++ {
+	if len(li.Label) == 3 {
+		return []float64{0.000001, .555555, 0.999999}
+	}
+	v := mat.NewVecDense(len(li.Label), nil)
+	for i := 0; i < len(li.Labels); i++ {
 		//fmt.Println("i", i)
-		f, ok := li.Label[labels[i]]
+		f, ok := li.Label[li.Labels[i]]
 		if ok {
 			//fmt.Println(i, f)
 			v.SetVec(i, float64(f))
 		}
 	}
-	v.ScaleVec(1/float64(len(labels)), v)
+	v.ScaleVec(1/float64(len(li.Labels)), v)
+
 	return v.RawVector().Data
-}*/
+}
 
 // FuturePut add FutureHash to dictionary or return index
 func (li *LogIt) FuturePut(futureHash int) (idx int, isNew bool) {
 	idx, ok := li.Future[futureHash]
 	if !ok {
 		li.Future[futureHash] = len(li.Future)
+		li.Weights = append(li.Weights, 0.0)
 		return len(li.Future), true
 	}
 	return idx, false
@@ -118,15 +117,14 @@ func (li *LogIt) LoadLineSVM(s string) (labelID int, futures []float64, err erro
 	return labelID, futures, nil
 }
 
-// Softmax return absolute probability value
-func Softmax(w, x *mat.VecDense) float64 {
-	v := mat.Dot(w, x)
+// Softmax
+func Softmax(x, w *mat.VecDense) float64 {
+	v := mat.Dot(x, w)
 	return 1.0 / (1.0 + math.Exp(-v))
 }
 
-// LineTrain train one line with gradient descent
-func (li *LogIt) LineTrain(futVals []float64, labelVal float64) {
-	//fmt.Println("fm3", len(futVals))
+// Train train one line with gradient descent
+func (li *LogIt) Train(futVals []float64, labelVal float64) (loss float64) {
 	// vectorize
 	if len(futVals) != len(li.Weights) {
 		if len(futVals) > len(li.Weights) {
@@ -138,40 +136,39 @@ func (li *LogIt) LineTrain(futVals []float64, labelVal float64) {
 	x := mat.NewVecDense(len(futVals), futVals)
 	wsVec := mat.NewVecDense(len(li.Weights), li.Weights)
 	// predict
-	pred := Softmax(wsVec, x)
-	// predict error
-	predErr := labelVal - pred
-	// scale koef
-	scale := li.Rate * predErr * pred * (1 - pred)
-	// calc scaled gradient
-	dx := mat.NewVecDense(x.Len(), nil)
-	dx.CopyVec(x)
-	//TODO
-	//try GD from https://pythobyte.com/logistic-regression-from-scratch-ae373d5d/
-	//np.dot(X.T, (h - y)) / y.shape[0]
-	// self.weight -= lr * dW
-	dx.ScaleVec(scale, x) //*float64(x.Len()), x)
-	// apply gradient
-	wsVec.AddVec(wsVec, dx)
-	li.Weights = wsVec.RawVector().Data
+	pred := Softmax(x, wsVec)
+
+	loss = logloss(pred, labelVal)
+
+	for i := range li.Weights {
+		li.Weights[i] += li.Rate * ((labelVal - pred) * futVals[i])
+	}
+	return
+	//dx := mat.NewVecDense(x.Len(), nil)
+	//dx.CopyVec(x)
+	//dx.ScaleVec(predErr, x)
+
+	//dx.SubVec(dx, labelVal)
+	//wsVec.SubVec((labelVal - dx), wsVec)
+	//li.Weights = wsVec.RawVector().Data
 }
 
-// TrainLineSVM train singl line
-func (li *LogIt) TrainLineSVM(s string) []float64 {
+// TrainLine train single line
+func (li *LogIt) TrainLine(s string) []float64 {
 	labelIdx, futures, err := li.LoadLineSVM(s)
 	if err != nil {
 		log.Fatal(err)
 	}
-	if len(li.Weights) == 0 {
-		li.Weights = make([]float64, len(futures))
-	}
-	li.LineTrain(futures, float64(labelIdx))
+	li.Train(futures, li.LabelVals[labelIdx])
 	return li.Weights
 }
 
-// TrainLinesSVM train on batch lines
+// TrainLines train on batch lines
 // Stohastic Gradient Descent
-func (li *LogIt) TrainLinesSVM(strs []string, epoch int) {
+func (li *LogIt) TrainLines(strs []string, epoch int) {
+	if epoch <= 0 {
+		return
+	}
 	labels := make([]float64, len(strs))
 	futures := make([][]float64, len(strs))
 	for i, s := range strs {
@@ -179,7 +176,7 @@ func (li *LogIt) TrainLinesSVM(strs []string, epoch int) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		labels[i] = float64(labelIdx)
+		labels[i] = li.LabelVals[labelIdx]
 		futures[i] = future
 	}
 	li.WarmUp(futures, labels, epoch)
@@ -201,8 +198,12 @@ func (li *LogIt) WarmUp(futVals [][]float64, labelVal []float64, epoch int) []fl
 			futVals[i], futVals[j] = futVals[j], futVals[i]
 			labelVal[i], labelVal[j] = labelVal[j], labelVal[i]
 		})
+		loss := 0.
 		for i := range futVals {
-			li.LineTrain(futVals[i], labelVal[i])
+			loss += li.Train(futVals[i], labelVal[i])
+		}
+		if ep%50 == 0 {
+			fmt.Printf("ep:%d loss:%f\n", ep, loss/float64(len(futVals)))
 		}
 	}
 	return li.Weights
@@ -211,8 +212,8 @@ func (li *LogIt) WarmUp(futVals [][]float64, labelVal []float64, epoch int) []fl
 // TestLinesSVM test multiple lines
 // return accuracy
 func (li *LogIt) TestLinesSVM(strs []string) float64 {
-	labels := make([]float64, len(strs))
-	futures := make([][]float64, len(strs))
+	//labels := make([]float64, len(li.Labels))
+	//futures := make([][]float64, len(strs))
 
 	var wrong int
 	for i, s := range strs {
@@ -220,11 +221,11 @@ func (li *LogIt) TestLinesSVM(strs []string) float64 {
 		if err != nil {
 			log.Fatal(err)
 		}
-		labels[i] = float64(labelIdx)
-		futures[i] = future
+		//labels[i] = li.LabelVals[labelIdx]
+		//futures[i] = future
 		prob, label, labelPredIdx := li.Predict(future)
 		if i < 0 {
-			fmt.Println(prob, label, labelPredIdx, labelIdx)
+			fmt.Println(s, "\n", prob, label, labelPredIdx, labelIdx)
 		}
 		if labelPredIdx != labelIdx {
 			wrong++
@@ -235,14 +236,18 @@ func (li *LogIt) TestLinesSVM(strs []string) float64 {
 
 // Predict
 func (li *LogIt) Predict(futures []float64) (probability float64, label string, labelIdx int) {
-	pred := Softmax(mat.NewVecDense(len(li.Weights), li.Weights), mat.NewVecDense(len(futures), futures))
+
+	pred := Softmax(mat.NewVecDense(len(futures), futures), mat.NewVecDense(len(li.Weights), li.Weights))
 	min := 1.
 	num := 0
-	for k, v := range li.Label {
-		if math.Abs(pred-float64(v)) <= min {
-			min = math.Abs(pred - float64(v))
-			label, num = k, v
+	for k, v := range li.LabelVals {
+		if math.Abs(pred-v) <= min {
+			min = math.Abs(pred - v)
+			num = k
 		}
 	}
-	return pred, label, num
+	//fmt.Println(labels[num])
+	//fmt.Println(pred, int(float64(len(li.Label))*pred+0.1), labels[num], li.Label[labels[num]], futures)
+	return pred, li.Labels[num], li.Label[li.Labels[num]]
+
 }
