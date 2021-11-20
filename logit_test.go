@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func ShuffleStr(slice []string) []string {
-	rand.Seed(time.Now().UnixNano())
+func ShuffleStr(slice []string, seed int) []string {
+	rand.Seed(int64(seed))
 	rand.Shuffle(len(slice), func(i, j int) {
 		slice[i], slice[j] = slice[j], slice[i]
 	})
@@ -22,7 +22,7 @@ func ShuffleStr(slice []string) []string {
 }
 
 func TestSVM(t *testing.T) {
-	li := flyml.LogItNew(0.1)
+	li := flyml.LogItNew(0.1, 42)
 	_, _, err := li.LoadLineSVM("1 6:1 8:1 15:1 21:1 29:1 33:1 34:1 37:1 42:1 50:1")
 	assert.NoError(t, err)
 	_, fut, err := li.LoadLineSVM("2 7:1 8:1")
@@ -36,6 +36,7 @@ func TestSVM(t *testing.T) {
 }
 
 func TestMashroom(t *testing.T) {
+	seed := 42
 	filepath := "dataset/mushrooms.svm"
 	f, err := os.Open(filepath)
 	if err != nil {
@@ -53,13 +54,13 @@ func TestMashroom(t *testing.T) {
 	}
 
 	// shuffle dataset
-	//rand.NewSource(int64(42))
+	lines = ShuffleStr(lines, seed)
 
 	// separate training and test sets
 	trainLen := int(0.9 * float64(len(lines)))
 	train := lines[:trainLen]
 
-	li := flyml.LogItNew(0.001)
+	li := flyml.LogItNew(0.001, seed)
 	// online learn & load
 	for _, s := range train {
 		li.TrainLine(s)
@@ -88,6 +89,7 @@ func TestMashroom(t *testing.T) {
 }
 
 func TestIris(t *testing.T) {
+	seed := 42
 	filepath := "dataset/iris.csv"
 	f, err := os.Open(filepath)
 	if err != nil {
@@ -99,6 +101,7 @@ func TestIris(t *testing.T) {
 	scanner.Split(bufio.ScanLines)
 
 	lines := make([]string, 0, 1024)
+
 	/*
 		// svm dataset
 		for scanner.Scan() {
@@ -116,22 +119,19 @@ func TestIris(t *testing.T) {
 		if n != 5 || err != nil {
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("%s 1:%f 2:%f", s, f1, f2))
+		lines = append(lines, fmt.Sprintf("%s 1:%f 2:%f 3:%f 4:%f", s, f1, f2, f3, f4))
 	}
 
 	// shuffle
-	//rand.NewSource(int64(time.Now().Nanosecond()))
-	rand.Shuffle(len(lines), func(i, j int) {
-		lines[i], lines[j] = lines[j], lines[i]
-	})
+	lines = ShuffleStr(lines, seed)
 
 	// separate training and test sets
-	trainLen := int(0.75 * float64(len(lines)))
+	trainLen := int(0.9 * float64(len(lines)))
 	train := lines[:trainLen]
 	test := lines[trainLen:]
 
 	fmt.Println(len(lines))
-	li := flyml.LogItNew(0.001)
+	li := flyml.LogItNew(0.001, seed)
 	// online learn & load
 	for _, s := range train {
 		li.TrainLine(s)
@@ -143,7 +143,7 @@ func TestIris(t *testing.T) {
 	fmt.Printf("\tAccuracy (online learn/1 epoch): %.2f\n\n", accuracy)
 	fmt.Printf("\t%+v\t%+v\t%v\n", li.Label, li.LabelVals, li.Labels)
 	start := time.Now()
-	epoh := 5001
+	epoh := 501
 	// warm up
 	li.TrainLines(train, epoh)
 	duration := time.Now().Sub(start)
@@ -161,7 +161,8 @@ func TestIris(t *testing.T) {
 }
 
 func TestBreastCancer(t *testing.T) {
-	filepath := "dataset/breast-cancer.svm"
+	seed := 42
+	filepath := "dataset/breast-cancer_scale.txt"
 	f, err := os.Open(filepath)
 	if err != nil {
 		panic(err.Error())
@@ -180,12 +181,7 @@ func TestBreastCancer(t *testing.T) {
 	}
 
 	// shuffle
-	//rand.NewSource(int64(42))
-	//rand.Shuffle(len(lines), func(i, j int) {
-	//	fmt.Println(i)
-	//	lines[i], lines[j] = lines[j], lines[i]
-	//})
-	ShuffleStr(lines)
+	lines = ShuffleStr(lines, seed)
 
 	// separate training and test sets
 	trainLen := int(0.9 * float64(len(lines)))
@@ -193,11 +189,10 @@ func TestBreastCancer(t *testing.T) {
 	test := lines[trainLen:]
 
 	//fmt.Println(len(lines))
-	li := flyml.LogItNew(0.001)
+	li := flyml.LogItNew(0.001, seed)
 	// online learn & load
 	for _, s := range train {
 		li.TrainLine(s)
-		//li.LoadLineSVM(s)
 	}
 
 	accuracy := li.TestLinesSVM(test)
@@ -227,7 +222,7 @@ func TestShuffle(t *testing.T) {
 	for i := 0; i < 99; i++ {
 		str = append(str, fmt.Sprintf("%d", i))
 	}
-	str = ShuffleStr(str)
+	str = ShuffleStr(str, 42)
 	ch := make(map[string]bool)
 	for i := range str {
 		if ok, _ := ch[str[i]]; !ok {
@@ -236,5 +231,62 @@ func TestShuffle(t *testing.T) {
 			log.Fatal("err")
 		}
 	}
-	fmt.Printf("%+v\n", str)
+	//fmt.Printf("%+v\n", str)
+}
+
+func TestNews20(t *testing.T) {
+	seed := 42
+	filepath := "dataset/news20"
+	f, err := os.Open(filepath)
+	if err != nil {
+		panic(err.Error())
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Split(bufio.ScanLines)
+
+	lines := make([]string, 0, 1024)
+
+	// svm dataset
+	for scanner.Scan() {
+		scanText := scanner.Text()
+		lines = append(lines, scanText)
+	}
+
+	// shuffle
+	lines = ShuffleStr(lines, seed)
+
+	// separate training and test sets
+	trainLen := int(0.9 * float64(len(lines)))
+	train := lines[:trainLen]
+	test := lines[trainLen:]
+
+	//fmt.Println(len(lines))
+	li := flyml.LogItNew(0.001, seed)
+	// online learn & load
+	for _, s := range train {
+		li.TrainLine(s)
+	}
+
+	accuracy := li.TestLinesSVM(test)
+	fmt.Printf("\nFinished Testing < logistic regression: news20 >\n")
+	fmt.Printf("\tAccuracy (online learn/1 epoch): %.2f\n\n", accuracy)
+	fmt.Printf("\t%+v\t%+v\t%v\n", li.Label, li.LabelVals, li.Labels)
+	start := time.Now()
+	epoh := 501
+	// warm up
+	li.TrainLines(train, epoh)
+	duration := time.Now().Sub(start)
+	if epoh > 0 {
+		fmt.Println("\tAverage iter time:", duration/time.Duration(len(train)*epoh))
+	}
+	fmt.Printf("\tFutures: %d Labels: %d\n", len(li.Future), len(li.Label))
+
+	start = time.Now()
+	accuracy = li.TestLinesSVM(test)
+	duration = time.Now().Sub(start)
+	fmt.Println("\tAverage prediction time:", duration/time.Duration(len(test)))
+	fmt.Printf("\tAccuracy (offline %d epoch): %.2f\n\n", epoh, accuracy)
+	//fmt.Println(test)
 }

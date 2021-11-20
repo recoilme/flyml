@@ -7,7 +7,6 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
-	"time"
 
 	"gonum.org/v1/gonum/mat"
 )
@@ -28,7 +27,8 @@ func logloss(yTrue float64, yPred float64) float64 {
 }
 
 // LogItNew create new LogIt with learning rate (0..1)
-func LogItNew(learningRate float64) *LogIt {
+func LogItNew(learningRate float64, seed int) *LogIt {
+	rand.Seed(int64(seed))
 	return &LogIt{
 		Label:     make(map[string]int),
 		LabelVals: make([]float64, 0),
@@ -52,12 +52,6 @@ func (li *LogIt) LabelPut(label string) (idx int, isNew bool) {
 }
 
 func (li *LogIt) LabelOnehot() []float64 {
-	if len(li.Label) == 2 {
-		return []float64{0.000001, 0.9}
-	}
-	if len(li.Label) == 3 {
-		return []float64{0.000001, .555555, 0.999999}
-	}
 	v := mat.NewVecDense(len(li.Label), nil)
 	for i := 0; i < len(li.Labels); i++ {
 		//fmt.Println("i", i)
@@ -90,6 +84,7 @@ func (li *LogIt) LoadLineSVM(s string) (labelID int, futures []float64, err erro
 
 	fields := strings.Fields(s)
 	futures = make([]float64, len(li.Future))
+	var futureVal float64
 	for i := range fields {
 		if i == 0 {
 			labelID, _ = li.LabelPut(fields[0])
@@ -103,7 +98,8 @@ func (li *LogIt) LoadLineSVM(s string) (labelID int, futures []float64, err erro
 		if err != nil {
 			return labelID, futures, fmt.Errorf("Error in string:%s err:%s", s, err)
 		}
-		futureVal, err := strconv.ParseFloat(arr[1], 64)
+
+		futureVal, err = strconv.ParseFloat(arr[1], 64)
 		if err != nil {
 			return labelID, futures, fmt.Errorf("Error in string:%s err:%s", s, err)
 		}
@@ -114,7 +110,7 @@ func (li *LogIt) LoadLineSVM(s string) (labelID int, futures []float64, err erro
 			continue
 		}
 
-		futures[futureIdx] = 1.0 //futureVal
+		futures[futureIdx] = futureVal
 	}
 	return labelID, futures, nil
 }
@@ -142,9 +138,11 @@ func (li *LogIt) Train(futVals []float64, labelVal float64) (loss float64) {
 
 	loss = logloss(labelVal, pred)
 
+	//Linear Approximation
 	for i := range li.Weights {
 		li.Weights[i] += li.Rate * ((labelVal - pred) * futVals[i])
 	}
+	//TODO: other solvers https://stackoverflow.com/questions/38640109/logistic-regression-python-solvers-definitions
 	return
 	/*
 
@@ -226,15 +224,6 @@ func (li *LogIt) WarmUp(futVals [][]float64, labelVal []float64, test []string, 
 	return li.Weights
 }
 
-func ShuffleDataset(seed int, futVals [][]float64, labelVal []float64) ([][]float64, []float64) {
-	r := rand.New(rand.NewSource(time.Now().Unix()))
-	r.Shuffle(len(futVals), func(i, j int) {
-		futVals[i], futVals[j] = futVals[j], futVals[i]
-		labelVal[i], labelVal[j] = labelVal[j], labelVal[i]
-	})
-	return futVals, labelVal
-}
-
 // TestLinesSVM test multiple lines
 // return accuracy
 func (li *LogIt) TestLinesSVM(strs []string) float64 {
@@ -272,8 +261,5 @@ func (li *LogIt) Predict(futures []float64) (probability float64, label string, 
 			num = k
 		}
 	}
-	//fmt.Println(labels[num])
-	//fmt.Println(pred, int(float64(len(li.Label))*pred+0.1), labels[num], li.Label[labels[num]], futures)
 	return pred, li.Labels[num], li.Label[li.Labels[num]]
-
 }
