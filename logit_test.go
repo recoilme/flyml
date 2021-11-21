@@ -165,7 +165,7 @@ func TestIris(t *testing.T) {
 
 func TestBreastCancer(t *testing.T) {
 	seed := 42
-	filepath := "dataset/breast-cancer_scale.txt"
+	filepath := "dataset/breast-cancer-scale.txt"
 	f, err := os.Open(filepath)
 	if err != nil {
 		panic(err.Error())
