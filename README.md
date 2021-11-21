@@ -48,7 +48,6 @@ ep:500 loss:0.543436 accuracy:99.926145
         Average prediction time: 3.817µs
         Accuracy (offline): 99.88
 
-150
 
 Finished Testing < logistic regression: iris >
         Accuracy (online learn): 66.67
