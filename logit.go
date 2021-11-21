@@ -7,12 +7,14 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
+	"sync"
 
 	"gonum.org/v1/gonum/mat"
 )
 
 type LogIt struct {
-	Label     map[string]int
+	sync.Mutex
+	LabelIdx  map[string]int
 	Labels    []string
 	LabelVals []float64
 	Future    map[int]int
@@ -30,7 +32,7 @@ func logloss(yTrue float64, yPred float64) float64 {
 func LogItNew(learningRate float64, seed int) *LogIt {
 	rand.Seed(int64(seed))
 	return &LogIt{
-		Label:     make(map[string]int),
+		LabelIdx:  make(map[string]int),
 		LabelVals: make([]float64, 0),
 		Labels:    make([]string, 0),
 		Future:    make(map[int]int),
@@ -41,33 +43,37 @@ func LogItNew(learningRate float64, seed int) *LogIt {
 
 // LabelPut add new Label or return label index
 func (li *LogIt) LabelPut(label string) (idx int, isNew bool) {
-	idx, ok := li.Label[label]
+	li.Lock()
+	defer li.Unlock()
+	idx, ok := li.LabelIdx[label]
 	if !ok {
-		li.Label[label] = len(li.Label)
+		li.LabelIdx[label] = len(li.LabelIdx)
 		li.Labels = append(li.Labels, label)
-		li.LabelVals = li.LabelOnehot()
-		return li.Label[label], true
+		li.LabelVals = li.LabelOnehot(li.Labels)
+		return li.LabelIdx[label], true
 	}
 	return idx, false
 }
 
-func (li *LogIt) LabelOnehot() []float64 {
-	v := mat.NewVecDense(len(li.Label), nil)
-	for i := 0; i < len(li.Labels); i++ {
+func (li *LogIt) LabelOnehot(labels []string) []float64 {
+	v := mat.NewVecDense(len(labels), nil)
+	for i := 0; i < len(labels); i++ {
 		//fmt.Println("i", i)
-		f, ok := li.Label[li.Labels[i]]
+		f, ok := li.LabelIdx[labels[i]]
 		if ok {
 			//fmt.Println(i, f)
 			v.SetVec(i, float64(f))
 		}
 	}
-	v.ScaleVec(1/float64(len(li.Labels)), v)
+	v.ScaleVec(1/float64(len(labels)), v)
 
 	return v.RawVector().Data
 }
 
 // FuturePut add FutureHash to dictionary or return index
 func (li *LogIt) FuturePut(futureHash int) (idx int, isNew bool) {
+	li.Lock()
+	defer li.Unlock()
 	idx, ok := li.Future[futureHash]
 	if !ok {
 		li.Future[futureHash] = len(li.Future)
@@ -122,8 +128,9 @@ func Softmax(x, w *mat.VecDense) float64 {
 }
 
 // Train train one line with gradient descent
-func (li *LogIt) Train(futVals []float64, labelVal float64) (loss float64) {
+func (li *LogIt) Train(futVals []float64, labelVal float64, calcLoss bool) (loss float64) {
 	// vectorize
+	li.Lock()
 	if len(futVals) != len(li.Weights) {
 		if len(futVals) > len(li.Weights) {
 			// new futures
@@ -133,15 +140,23 @@ func (li *LogIt) Train(futVals []float64, labelVal float64) (loss float64) {
 	}
 	x := mat.NewVecDense(len(futVals), futVals)
 	wsVec := mat.NewVecDense(len(li.Weights), li.Weights)
+	li.Unlock()
 	// predict
 	pred := Softmax(x, wsVec)
 
-	loss = logloss(labelVal, pred)
+	if calcLoss {
+		loss = logloss(labelVal, pred)
+	}
 
 	//Linear Approximation
-	for i := range li.Weights {
-		li.Weights[i] += li.Rate * ((labelVal - pred) * futVals[i])
-	}
+	//for i := range li.Weights {
+	//li.Weights[i] += li.Rate * ((labelVal - pred) * futVals[i])
+	//}
+	scale := li.Rate * (labelVal - pred)
+	wsVec.AddScaledVec(wsVec, scale, x)
+	li.Lock()
+	li.Weights = wsVec.RawVector().Data
+	li.Unlock()
 	//TODO: other solvers https://stackoverflow.com/questions/38640109/logistic-regression-python-solvers-definitions
 	return
 	/*
@@ -174,7 +189,7 @@ func (li *LogIt) TrainLine(s string) []float64 {
 	if err != nil {
 		log.Fatal(err)
 	}
-	li.Train(futures, li.LabelVals[labelIdx])
+	li.Train(futures, li.LabelVals[labelIdx], false)
 	return li.Weights
 }
 
@@ -213,13 +228,24 @@ func (li *LogIt) WarmUp(futVals [][]float64, labelVal []float64, test []string, 
 			futVals[i], futVals[j] = futVals[j], futVals[i]
 			labelVal[i], labelVal[j] = labelVal[j], labelVal[i]
 		})
-		loss := 0.
+		if ep%50 == 0 || ep == (epoch-1) {
+			loss := 0.
+			for i := range futVals {
+				loss += li.Train(futVals[i], labelVal[i], true)
+			}
+			fmt.Printf("ep:%d loss:%f accuracy:%f\n", ep, loss/float64(len(futVals)), li.TestLinesSVM(test))
+			continue
+		}
+		var wg sync.WaitGroup
 		for i := range futVals {
-			loss += li.Train(futVals[i], labelVal[i])
+			wg.Add(1)
+			go func(x []float64, y float64) {
+				defer wg.Done()
+				li.Train(x, y, false)
+			}(futVals[i], labelVal[i])
 		}
-		if ep%50 == 0 {
-			fmt.Printf("ep:%d loss:%f accuracy:%f w[0];%f\n", ep, loss/float64(len(futVals)), li.TestLinesSVM(test), li.Weights[1])
-		}
+		wg.Wait()
+
 	}
 	return li.Weights
 }
@@ -261,5 +287,5 @@ func (li *LogIt) Predict(futures []float64) (probability float64, label string, 
 			num = k
 		}
 	}
-	return pred, li.Labels[num], li.Label[li.Labels[num]]
+	return pred, li.Labels[num], li.LabelIdx[li.Labels[num]]
 }

@@ -1,8 +1,10 @@
 package flyml_test
 
 import (
+	"archive/zip"
 	"bufio"
 	"fmt"
+	"io"
 	"log"
 	"math/rand"
 	"os"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/recoilme/flyml"
 	"github.com/stretchr/testify/assert"
+	"gonum.org/v1/gonum/blas/blas64"
 )
 
 func ShuffleStr(slice []string, seed int) []string {
@@ -32,7 +35,7 @@ func TestSVM(t *testing.T) {
 	// Future:map[6:0 7:10 8:1 15:2 21:3 29:4 33:5 34:6 37:7 42:8 50:9]}
 	// [0 1 0 0 0 0 0 0 0 0 1]
 	assert.Equal(t, 11, len(fut))
-	assert.Equal(t, 2, len(li.Label))
+	assert.Equal(t, 2, len(li.LabelIdx))
 }
 
 func TestMashroom(t *testing.T) {
@@ -66,7 +69,7 @@ func TestMashroom(t *testing.T) {
 		li.TrainLine(s)
 	}
 
-	fmt.Printf("%v %v %v\n\n", li.Label, li.LabelVals, li.Labels)
+	//fmt.Printf("%v %v %v\n\n", li.LabelIdx, li.LabelVals, li.Labels)
 	test := lines[trainLen:]
 	accuracy := li.TestLinesSVM(test)
 	fmt.Printf("\nFinished Testing < logistic regression mashroom >\n")
@@ -79,7 +82,7 @@ func TestMashroom(t *testing.T) {
 	if epoh > 0 {
 		fmt.Println("\tAverage iter time:", duration/time.Duration(len(train)*epoh))
 	}
-	fmt.Printf("\tFutures: %d Labels: %d\n", len(li.Future), len(li.Label))
+	fmt.Printf("\tFutures: %d Labels: %d\n", len(li.Future), len(li.LabelIdx))
 
 	start = time.Now()
 	accuracy = li.TestLinesSVM(test)
@@ -140,8 +143,8 @@ func TestIris(t *testing.T) {
 
 	accuracy := li.TestLinesSVM(test)
 	fmt.Printf("\nFinished Testing < logistic regression: iris >\n")
-	fmt.Printf("\tAccuracy (online learn/1 epoch): %.2f\n\n", accuracy)
-	fmt.Printf("\t%+v\t%+v\t%v\n", li.Label, li.LabelVals, li.Labels)
+	fmt.Printf("\tAccuracy (online learn): %.2f\n\n", accuracy)
+	//fmt.Printf("\t%+v\t%+v\t%v\n", li.LabelIdx, li.LabelVals, li.Labels)
 	start := time.Now()
 	epoh := 501
 	// warm up
@@ -150,7 +153,7 @@ func TestIris(t *testing.T) {
 	if epoh > 0 {
 		fmt.Println("\tAverage iter time:", duration/time.Duration(len(train)*epoh))
 	}
-	fmt.Printf("\tFutures: %d Labels: %d\n", len(li.Future), len(li.Label))
+	fmt.Printf("\tFutures: %d Labels: %d\n", len(li.Future), len(li.LabelIdx))
 
 	start = time.Now()
 	accuracy = li.TestLinesSVM(test)
@@ -197,8 +200,8 @@ func TestBreastCancer(t *testing.T) {
 
 	accuracy := li.TestLinesSVM(test)
 	fmt.Printf("\nFinished Testing < logistic regression: breast-cancer >\n")
-	fmt.Printf("\tAccuracy (online learn/1 epoch): %.2f\n\n", accuracy)
-	fmt.Printf("\t%+v\t%+v\t%v\n", li.Label, li.LabelVals, li.Labels)
+	fmt.Printf("\tAccuracy (online learn): %.2f\n\n", accuracy)
+	//fmt.Printf("\t%+v\t%+v\t%v\n", li.LabelIdx, li.LabelVals, li.Labels)
 	start := time.Now()
 	epoh := 501
 	// warm up
@@ -207,7 +210,7 @@ func TestBreastCancer(t *testing.T) {
 	if epoh > 0 {
 		fmt.Println("\tAverage iter time:", duration/time.Duration(len(train)*epoh))
 	}
-	fmt.Printf("\tFutures: %d Labels: %d\n", len(li.Future), len(li.Label))
+	fmt.Printf("\tFutures: %d Labels: %d\n", len(li.Future), len(li.LabelIdx))
 
 	start = time.Now()
 	accuracy = li.TestLinesSVM(test)
@@ -236,7 +239,24 @@ func TestShuffle(t *testing.T) {
 
 func TestNews20(t *testing.T) {
 	seed := 42
-	filepath := "dataset/news20"
+	filepath := "dataset/news20.zip"
+	//unpack ria.tsv
+	r, err := zip.OpenReader(filepath)
+	assert.NoError(t, err)
+	defer r.Close()
+	for _, f := range r.File {
+		dest, err := os.Create("dataset/news20")
+		assert.NoError(t, err)
+		defer dest.Close()
+		rc, err := f.Open()
+		assert.NoError(t, err)
+		defer rc.Close()
+		_, err = io.Copy(dest, rc)
+		assert.NoError(t, err)
+	}
+	defer os.Remove("dataset/news20")
+
+	filepath = "dataset/news20"
 	f, err := os.Open(filepath)
 	if err != nil {
 		panic(err.Error())
@@ -271,17 +291,18 @@ func TestNews20(t *testing.T) {
 
 	accuracy := li.TestLinesSVM(test)
 	fmt.Printf("\nFinished Testing < logistic regression: news20 >\n")
-	fmt.Printf("\tAccuracy (online learn/1 epoch): %.2f\n\n", accuracy)
-	fmt.Printf("\t%+v\t%+v\t%v\n", li.Label, li.LabelVals, li.Labels)
+	fmt.Printf("\tAccuracy (online learn): %.2f\n\n", accuracy)
+	//fmt.Printf("\t%+v\t%+v\t%v\n", li.Label, li.LabelVals, li.Labels)
 	start := time.Now()
-	epoh := 501
+	epoh := 500
 	// warm up
 	li.TrainLines(train, epoh)
 	duration := time.Now().Sub(start)
 	if epoh > 0 {
-		fmt.Println("\tAverage iter time:", duration/time.Duration(len(train)*epoh))
+		fmt.Println("\tAverage iter time:", duration/time.Duration(len(train)*(epoh)))
+		fmt.Println("\tTotal time:", duration)
 	}
-	fmt.Printf("\tFutures: %d Labels: %d\n", len(li.Future), len(li.Label))
+	fmt.Printf("\tFutures: %d Labels: %d\n", len(li.Future), len(li.LabelIdx))
 
 	start = time.Now()
 	accuracy = li.TestLinesSVM(test)
@@ -289,4 +310,11 @@ func TestNews20(t *testing.T) {
 	fmt.Println("\tAverage prediction time:", duration/time.Duration(len(test)))
 	fmt.Printf("\tAccuracy (offline %d epoch): %.2f\n\n", epoh, accuracy)
 	//fmt.Println(test)
+}
+
+func TestBLAS(t *testing.T) {
+	a := blas64.Vector{Inc: 1, Data: []float64{1, 2, 3}}
+	b := blas64.Vector{Inc: 1, Data: []float64{2, 3, 4}}
+	dot := blas64.Dot(a, b)
+	fmt.Println("v dot:", dot)
 }
