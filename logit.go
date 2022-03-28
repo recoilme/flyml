@@ -121,6 +121,34 @@ func (li *LogIt) LoadLineSVM(s string) (labelID int, futures []float64, err erro
 	return labelID, futures, nil
 }
 
+//LoadLine convert line in format without future weight:
+//1 6 8 15 21 29 33 34 37 42 50
+//Label FutureHash ...
+func (li *LogIt) LoadLine(s string) (labelID int, futures []float64, err error) {
+	fields := strings.Fields(s)
+	futures = make([]float64, len(li.Future))
+	for i := range fields {
+		if i == 0 {
+			labelID, _ = li.LabelPut(fields[0])
+			continue
+		}
+		futureHash, err := strconv.Atoi(fields[i])
+		if err != nil {
+			return labelID, futures, fmt.Errorf("Error in string:%s err:%s", s, err)
+		}
+
+		futureIdx, isNew := li.FuturePut(futureHash)
+		if isNew {
+			//new future
+			futures = append(futures, 1)
+			continue
+		}
+
+		futures[futureIdx] = 1
+	}
+	return labelID, futures, nil
+}
+
 // Softmax
 func Softmax(x, w *mat.VecDense) float64 {
 	v := mat.Dot(x, w)
@@ -186,6 +214,16 @@ func (li *LogIt) Train(futVals []float64, labelVal float64, calcLoss bool) (loss
 // TrainLine train single line
 func (li *LogIt) TrainLine(s string) []float64 {
 	labelIdx, futures, err := li.LoadLineSVM(s)
+	if err != nil {
+		log.Fatal(err)
+	}
+	li.Train(futures, li.LabelVals[labelIdx], false)
+	return li.Weights
+}
+
+// TrainLineWithoutWeight train single line without weight
+func (li *LogIt) TrainLineWithoutWeight(s string) []float64 {
+	labelIdx, futures, err := li.LoadLine(s)
 	if err != nil {
 		log.Fatal(err)
 	}
