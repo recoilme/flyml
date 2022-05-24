@@ -108,25 +108,11 @@ func (li *LogIt) LoadLineSVM(s string) (labelID int, futures []float64, err erro
 			continue //label
 		}
 		arr := strings.Split(fields[i], ":")
-<<<<<<< HEAD
-		hash := arr[0]
-		weight := ""
-		if len(arr) == 2 {
-			weight = arr[1]
-		}
-		futureHash, err := strconv.Atoi(hash)
-=======
 		futureHash, err := strconv.Atoi(arr[0])
->>>>>>> master
 		if err != nil {
 			continue // skip non integer or get hash on the fly?
 		}
 
-<<<<<<< HEAD
-		futureVal, err = strconv.ParseFloat(weight, 64)
-		if err != nil {
-			futureVal = 1.0
-=======
 		if len(arr) < 2 {
 			futureVal = 1.0
 		} else {
@@ -134,7 +120,6 @@ func (li *LogIt) LoadLineSVM(s string) (labelID int, futures []float64, err erro
 			if err != nil {
 				return labelID, futures, fmt.Errorf("Error in string:%s err:%s", s, err)
 			}
->>>>>>> master
 		}
 
 		futureIdx, isNew := li.FuturePut(futureHash)
