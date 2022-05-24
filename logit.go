@@ -5,6 +5,7 @@ import (
 	"log"
 	"math"
 	"math/rand"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,7 +25,8 @@ type LogIt struct {
 
 // logloss
 func logloss(yTrue float64, yPred float64) float64 {
-	loss := yTrue*math.Log1p(yPred) + (1-yTrue)*math.Log1p(1-yPred)
+	loss := yTrue*math.Log(yPred) + (1-yTrue)*math.Log(1-yPred)
+
 	return loss
 }
 
@@ -97,17 +99,19 @@ func (li *LogIt) LoadLineSVM(s string) (labelID int, futures []float64, err erro
 			continue //label
 		}
 		arr := strings.Split(fields[i], ":")
-		if len(arr) < 2 {
-			return labelID, futures, fmt.Errorf("Error in string:%s len(arr) < 2", s)
+		hash := arr[0]
+		weight := ""
+		if len(arr) == 2 {
+			weight = arr[1]
 		}
-		futureHash, err := strconv.Atoi(arr[0])
+		futureHash, err := strconv.Atoi(hash)
 		if err != nil {
-			return labelID, futures, fmt.Errorf("Error in string:%s err:%s", s, err)
+			continue // skip non integer or get hash on the fly?
 		}
 
-		futureVal, err = strconv.ParseFloat(arr[1], 64)
+		futureVal, err = strconv.ParseFloat(weight, 64)
 		if err != nil {
-			return labelID, futures, fmt.Errorf("Error in string:%s err:%s", s, err)
+			futureVal = 1.0
 		}
 		futureIdx, isNew := li.FuturePut(futureHash)
 		if isNew {
@@ -123,6 +127,7 @@ func (li *LogIt) LoadLineSVM(s string) (labelID int, futures []float64, err erro
 
 // Softmax
 func Softmax(x, w *mat.VecDense) float64 {
+	//return mat.Dot(x, w)
 	v := mat.Dot(x, w)
 	return 1.0 / (1.0 + math.Exp(-v))
 }
@@ -143,6 +148,7 @@ func (li *LogIt) Train(futVals []float64, labelVal float64, calcLoss bool) (loss
 	li.Unlock()
 	// predict
 	pred := Softmax(x, wsVec)
+	//fmt.Printf("p:%f\n", pred)
 
 	if calcLoss {
 		loss = logloss(labelVal, pred)
@@ -152,7 +158,7 @@ func (li *LogIt) Train(futVals []float64, labelVal float64, calcLoss bool) (loss
 	//for i := range li.Weights {
 	//li.Weights[i] += li.Rate * ((labelVal - pred) * futVals[i])
 	//}
-	scale := li.Rate * (labelVal - pred)
+	scale := li.Rate * (labelVal - pred) //* float64(1) / float64(len(futVals))
 	wsVec.AddScaledVec(wsVec, scale, x)
 	li.Lock()
 	li.Weights = wsVec.RawVector().Data
@@ -228,12 +234,13 @@ func (li *LogIt) WarmUp(futVals [][]float64, labelVal []float64, test []string, 
 			futVals[i], futVals[j] = futVals[j], futVals[i]
 			labelVal[i], labelVal[j] = labelVal[j], labelVal[i]
 		})
-		if ep%50 == 0 || ep == (epoch-1) {
+		if (ep%500 == 0) || ep == (epoch-1) {
 			loss := 0.
 			for i := range futVals {
 				loss += li.Train(futVals[i], labelVal[i], true)
 			}
-			fmt.Printf("ep:%d loss:%f accuracy:%f\n", ep, loss/float64(len(futVals)), li.TestLinesSVM(test))
+			acc, cm := li.TestLinesSVM(test)
+			fmt.Printf("ep:%d loss:%f accuracy:%f cm:%+v\n", ep, loss/float64(len(futVals)), acc, cm)
 			continue
 		}
 		var wg sync.WaitGroup
@@ -252,11 +259,13 @@ func (li *LogIt) WarmUp(futVals [][]float64, labelVal []float64, test []string, 
 
 // TestLinesSVM test multiple lines
 // return accuracy
-func (li *LogIt) TestLinesSVM(strs []string) float64 {
+func (li *LogIt) TestLinesSVM(strs []string) (float64, map[string]int) {
 	//labels := make([]float64, len(li.Labels))
 	//futures := make([][]float64, len(strs))
 
 	var wrong int
+	cm := make(map[string]int)
+	xtp := make([]float64, 0, 1024)
 	for i, s := range strs {
 		labelIdx, future, err := li.LoadLineSVM(s)
 		if err != nil {
@@ -268,11 +277,26 @@ func (li *LogIt) TestLinesSVM(strs []string) float64 {
 		if i < 0 {
 			fmt.Println(s, "\n", prob, label, labelPredIdx, labelIdx)
 		}
+		suffix := ":right"
 		if labelPredIdx != labelIdx {
 			wrong++
+			suffix = ":wrong"
+		}
+		_, ok := cm[li.Labels[labelIdx]+suffix]
+		if !ok {
+			cm[li.Labels[labelIdx]+suffix] = 1
+		} else {
+			cm[li.Labels[labelIdx]+suffix] += 1
+		}
+		if li.Labels[labelIdx] == "1" {
+			xtp = append(xtp, prob)
 		}
 	}
-	return 100 * (1 - float64(wrong)/float64(len(strs)))
+	sort.Float64s(xtp)
+	if len(xtp) > 0 {
+		fmt.Println("Click prob median:", xtp[len(xtp)/2])
+	}
+	return 100 * (1 - float64(wrong)/float64(len(strs))), cm
 }
 
 // Predict
@@ -288,4 +312,15 @@ func (li *LogIt) Predict(futures []float64) (probability float64, label string, 
 		}
 	}
 	return pred, li.Labels[num], li.LabelIdx[li.Labels[num]]
+}
+
+// TrainLine train single line
+func (li *LogIt) TestLineLogLoss(s string) float64 {
+	labelIdx, futures, err := li.LoadLineSVM(s)
+	if err != nil {
+		log.Fatal(err)
+	}
+	pred := Softmax(mat.NewVecDense(len(futures), futures), mat.NewVecDense(len(li.Weights), li.Weights))
+	yTrue := li.LabelVals[labelIdx]
+	return logloss(yTrue, pred)
 }

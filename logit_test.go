@@ -65,17 +65,27 @@ func TestMashroom(t *testing.T) {
 
 	li := flyml.LogItNew(0.001, seed)
 	// online learn & load
-	for _, s := range train {
-		li.TrainLine(s)
+	loss := 0.
+	test := lines[trainLen:]
+	for i, s := range train {
+		labelIdx, futures, err := li.LoadLineSVM(s)
+		if err != nil {
+			log.Fatal(err)
+		}
+		loss += li.Train(futures, li.LabelVals[labelIdx], true)
+		lossTest := 0.
+		for _, sTest := range test {
+			lossTest += li.TestLineLogLoss(sTest)
+		}
+		fmt.Printf("ep:%d loss:%f lossTest:%f\n", i, (-1.)*loss/float64(i), (-1.)*lossTest/float64(len(test)))
 	}
 
 	//fmt.Printf("%v %v %v\n\n", li.LabelIdx, li.LabelVals, li.Labels)
-	test := lines[trainLen:]
-	accuracy := li.TestLinesSVM(test)
+	accuracy, cm := li.TestLinesSVM(test)
 	fmt.Printf("\nFinished Testing < logistic regression mashroom >\n")
 	fmt.Printf("\tAccuracy (online learn): %.2f\n\n", accuracy)
 	start := time.Now()
-	epoh := 501
+	epoh := 0
 	// warm up
 	li.TrainLines(lines, epoh)
 	duration := time.Now().Sub(start)
@@ -85,14 +95,14 @@ func TestMashroom(t *testing.T) {
 	fmt.Printf("\tFutures: %d Labels: %d\n", len(li.Future), len(li.LabelIdx))
 
 	start = time.Now()
-	accuracy = li.TestLinesSVM(test)
+	accuracy, cm = li.TestLinesSVM(test)
 	duration = time.Now().Sub(start)
 	fmt.Println("\tAverage prediction time:", duration/time.Duration(len(test)))
-	fmt.Printf("\tAccuracy (offline): %.2f\n\n", accuracy)
+	fmt.Printf("\tAccuracy (offline): %.2f cm:%+v\n\n", accuracy, cm)
 }
 
 func TestIris(t *testing.T) {
-	seed := 42
+	seed := 43
 	filepath := "dataset/iris.csv"
 	f, err := os.Open(filepath)
 	if err != nil {
@@ -141,12 +151,12 @@ func TestIris(t *testing.T) {
 		//li.LoadLineSVM(s)
 	}
 
-	accuracy := li.TestLinesSVM(test)
+	accuracy, cm := li.TestLinesSVM(test)
 	fmt.Printf("\nFinished Testing < logistic regression: iris >\n")
 	fmt.Printf("\tAccuracy (online learn): %.2f\n\n", accuracy)
 	//fmt.Printf("\t%+v\t%+v\t%v\n", li.LabelIdx, li.LabelVals, li.Labels)
 	start := time.Now()
-	epoh := 501
+	epoh := 10000
 	// warm up
 	li.TrainLines(train, epoh)
 	duration := time.Now().Sub(start)
@@ -156,10 +166,10 @@ func TestIris(t *testing.T) {
 	fmt.Printf("\tFutures: %d Labels: %d\n", len(li.Future), len(li.LabelIdx))
 
 	start = time.Now()
-	accuracy = li.TestLinesSVM(test)
+	accuracy, cm = li.TestLinesSVM(test)
 	duration = time.Now().Sub(start)
 	fmt.Println("\tAverage prediction time:", duration/time.Duration(len(test)))
-	fmt.Printf("\tAccuracy (offline %d epoch): %.2f\n\n", epoh, accuracy)
+	fmt.Printf("\tAccuracy (offline %d epoch): %.2f cm:%+v\n\n", epoh, accuracy, cm)
 	//fmt.Println(test)
 }
 
@@ -198,12 +208,12 @@ func TestBreastCancer(t *testing.T) {
 		li.TrainLine(s)
 	}
 
-	accuracy := li.TestLinesSVM(test)
+	accuracy, cm := li.TestLinesSVM(test)
 	fmt.Printf("\nFinished Testing < logistic regression: breast-cancer >\n")
 	fmt.Printf("\tAccuracy (online learn): %.2f\n\n", accuracy)
 	//fmt.Printf("\t%+v\t%+v\t%v\n", li.LabelIdx, li.LabelVals, li.Labels)
 	start := time.Now()
-	epoh := 501
+	epoh := 1
 	// warm up
 	li.TrainLines(train, epoh)
 	duration := time.Now().Sub(start)
@@ -213,10 +223,10 @@ func TestBreastCancer(t *testing.T) {
 	fmt.Printf("\tFutures: %d Labels: %d\n", len(li.Future), len(li.LabelIdx))
 
 	start = time.Now()
-	accuracy = li.TestLinesSVM(test)
+	accuracy, cm = li.TestLinesSVM(test)
 	duration = time.Now().Sub(start)
 	fmt.Println("\tAverage prediction time:", duration/time.Duration(len(test)))
-	fmt.Printf("\tAccuracy (offline %d epoch): %.2f\n\n", epoh, accuracy)
+	fmt.Printf("\tAccuracy (offline %d epoch): %.2f cm:%+v\n\n", epoh, accuracy, cm)
 	//fmt.Println(test)
 }
 
@@ -289,7 +299,7 @@ func TestNews20(t *testing.T) {
 		li.TrainLine(s)
 	}
 
-	accuracy := li.TestLinesSVM(test)
+	accuracy, cm := li.TestLinesSVM(test)
 	fmt.Printf("\nFinished Testing < logistic regression: news20 >\n")
 	fmt.Printf("\tAccuracy (online learn): %.2f\n\n", accuracy)
 	//fmt.Printf("\t%+v\t%+v\t%v\n", li.Label, li.LabelVals, li.Labels)
@@ -305,10 +315,10 @@ func TestNews20(t *testing.T) {
 	fmt.Printf("\tFutures: %d Labels: %d\n", len(li.Future), len(li.LabelIdx))
 
 	start = time.Now()
-	accuracy = li.TestLinesSVM(test)
+	accuracy, cm = li.TestLinesSVM(test)
 	duration = time.Now().Sub(start)
 	fmt.Println("\tAverage prediction time:", duration/time.Duration(len(test)))
-	fmt.Printf("\tAccuracy (offline %d epoch): %.2f\n\n", epoh, accuracy)
+	fmt.Printf("\tAccuracy (offline %d epoch): %.2f cm:%+v\n\n", epoh, accuracy, cm)
 	//fmt.Println(test)
 }
 
@@ -317,4 +327,87 @@ func TestBLAS(t *testing.T) {
 	b := blas64.Vector{Inc: 1, Data: []float64{2, 3, 4}}
 	dot := blas64.Dot(a, b)
 	fmt.Println("v dot:", dot)
+}
+
+// для весов структура
+type Arm struct {
+	Shows  float64
+	Clicks float64
+}
+
+func TestRandom(t *testing.T) {
+	// тестируем алгоритм рандом vs weited random
+	// есть 2 руки с вероятностью клика 3 и 7%
+	a := make(map[int]float64)
+	a[0] = 0.03
+	a[1] = 0.07
+	steps := 100_000 // шагов в экспе
+	success := 0
+	success_wr := 0
+
+	arms := make(map[int]*Arm)
+	for i := 0; i < len(a); i++ {
+		arms[i] = &Arm{}
+	}
+	rand.NewSource(int64(42)) // для предсказуемости результатов
+	// перебираем
+	for i := 0; i < steps; i++ {
+		//выбираем рандомно руку
+		variant := rand.Intn(len(a))
+		monetka := rand.Float64()
+		if monetka <= a[variant] {
+			//кликнул ебана
+			success++
+		}
+		// а теперь по весам выбираем при том что мы не_знаем ctr (в этом смысл этой игры)
+		variant, _ = sample_pmf(arm_ctr(arms))
+		arms[variant].Shows += 1.
+		if monetka <= a[variant] {
+			arms[variant].Clicks += 1.
+			success_wr++
+		}
+
+	}
+	fmt.Println("При рандоме угадали:", success, " accuracy:", float64(success)*100./float64(steps), "%")
+	fmt.Println("При взв. рандоме угадали:", success_wr, " accuracy:", float64(success_wr)*100./float64(steps), "%")
+	for i := range arms {
+		fmt.Printf("%+v\n", arms[i])
+	}
+	fmt.Println(arm_ctr(arms))
+	fmt.Println("Кликов больше на:", 100.-float64(success)*100./float64(success_wr), "%")
+
+}
+
+func arm_ctr(a map[int]*Arm) []float64 {
+	ctr := make([]float64, len(a))
+	for i := range a {
+		if a[i].Clicks == 0 || a[i].Shows == 0 {
+			ctr[i] = 1. / float64(len(a))
+			continue
+		}
+		ctr[i] = a[i].Clicks / a[i].Shows
+	}
+	return ctr
+}
+
+// sample by probability mass function
+func sample_pmf(pmf []float64) (int, float64) {
+	var total float64 = 0.0
+	for _, v := range pmf {
+		total += v
+	}
+	scale := 1 / total
+
+	for i, _ := range pmf {
+		pmf[i] *= scale
+	}
+	draw := rand.Float64()
+	var sum_prob float64 = 0.0
+	for index, prob := range pmf {
+		sum_prob += prob
+		if sum_prob >= draw {
+			return index, prob
+		}
+	}
+	return 0, pmf[0]
 }
