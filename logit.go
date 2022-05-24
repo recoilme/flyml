@@ -19,6 +19,7 @@ type LogIt struct {
 	Labels    []string
 	LabelVals []float64
 	Future    map[int]int
+	Features  []float64
 	Weights   []float64
 	Rate      float64
 }
@@ -38,8 +39,15 @@ func LogItNew(learningRate float64, seed int) *LogIt {
 		LabelVals: make([]float64, 0),
 		Labels:    make([]string, 0),
 		Future:    make(map[int]int),
+		Features:  make([]float64, 0),
 		Weights:   make([]float64, 0),
 		Rate:      learningRate,
+	}
+}
+
+func (li *LogIt) CleanFeatures() {
+	for i, _ := range li.Features {
+		li.Features[i] = 0.0
 	}
 }
 
@@ -88,6 +96,7 @@ func (li *LogIt) FuturePut(futureHash int) (idx int, isNew bool) {
 //LoadLineSVM convert line in svm format:
 //1 6:1 8:1 15:1 21:1 29:1 33:1 34:1 37:1 42:1 50:1
 //Label FutureHash:FutureWeight ...
+//Wight can be ommited
 func (li *LogIt) LoadLineSVM(s string) (labelID int, futures []float64, err error) {
 
 	fields := strings.Fields(s)
@@ -99,20 +108,35 @@ func (li *LogIt) LoadLineSVM(s string) (labelID int, futures []float64, err erro
 			continue //label
 		}
 		arr := strings.Split(fields[i], ":")
+<<<<<<< HEAD
 		hash := arr[0]
 		weight := ""
 		if len(arr) == 2 {
 			weight = arr[1]
 		}
 		futureHash, err := strconv.Atoi(hash)
+=======
+		futureHash, err := strconv.Atoi(arr[0])
+>>>>>>> master
 		if err != nil {
 			continue // skip non integer or get hash on the fly?
 		}
 
+<<<<<<< HEAD
 		futureVal, err = strconv.ParseFloat(weight, 64)
 		if err != nil {
 			futureVal = 1.0
+=======
+		if len(arr) < 2 {
+			futureVal = 1.0
+		} else {
+			futureVal, err = strconv.ParseFloat(arr[1], 64)
+			if err != nil {
+				return labelID, futures, fmt.Errorf("Error in string:%s err:%s", s, err)
+			}
+>>>>>>> master
 		}
+
 		futureIdx, isNew := li.FuturePut(futureHash)
 		if isNew {
 			//new future
@@ -190,13 +214,58 @@ func (li *LogIt) Train(futVals []float64, labelVal float64, calcLoss bool) (loss
 }
 
 // TrainLine train single line
-func (li *LogIt) TrainLine(s string) []float64 {
-	labelIdx, futures, err := li.LoadLineSVM(s)
-	if err != nil {
-		log.Fatal(err)
+func (li *LogIt) TrainLine(s string) (err error) {
+	var featureVal float64
+	var labelID int
+	var labelVal float64
+	li.CleanFeatures()
+	fields := strings.Fields(s)
+	for i := range fields {
+		if i == 0 {
+			labelID, _ = li.LabelPut(fields[0])
+			labelVal = li.LabelVals[labelID]
+			continue //label
+		}
+		arr := strings.Split(fields[i], ":")
+		featureHash, err := strconv.Atoi(arr[0])
+		if err != nil {
+			return fmt.Errorf("Error in string:%s err:%s", s, err)
+		}
+
+		featureVal = 1.0
+		if len(arr) > 2 {
+			featureVal, err = strconv.ParseFloat(arr[1], 64)
+			if err != nil {
+				return fmt.Errorf("Error in string:%s err:%s", s, err)
+			}
+		}
+		featureIdx, isNew := li.FuturePut(featureHash)
+		if isNew {
+			li.Features = append(li.Features, featureVal)
+			continue
+		}
+		li.Features[featureIdx] = featureVal
 	}
-	li.Train(futures, li.LabelVals[labelIdx], false)
-	return li.Weights
+	// vectorize
+	li.Lock()
+	if len(li.Features) != len(li.Weights) {
+		if len(li.Features) > len(li.Weights) {
+			// new futures
+			tmp := make([]float64, len(li.Features)-len(li.Weights))
+			li.Weights = append(li.Weights, tmp...)
+		}
+	}
+	wsVec := mat.NewVecDense(len(li.Weights), li.Weights)
+	x := mat.NewVecDense(len(li.Features), li.Features)
+	li.Unlock()
+	// predict
+	pred := Softmax(x, wsVec)
+	scale := li.Rate * (labelVal - pred)
+	wsVec.AddScaledVec(wsVec, scale, x)
+	li.Lock()
+	li.Weights = wsVec.RawVector().Data
+	li.Unlock()
+	return nil
 }
 
 // TrainLines train on batch lines
